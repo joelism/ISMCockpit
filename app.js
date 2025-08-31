@@ -1,182 +1,191 @@
+/* ISM Cockpit – Login mit Passwort ODER PIN-Pad */
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
 const ISM = { org: 'ISM Switzerland' };
 
-// mehrere Passwörter erlaubt
-const AGENTS = { 'A017': ['1107', 'BananaTomate1107'] };
+// Erlaubte Geheimnisse pro Beamtennummer
+const CREDENTIALS = {
+  'A017': ['BananaTomate1107', '500011'] // Passwort ODER 6-stelliger PIN
+};
 
 const keys = {
-  session: 'ismc-session',
-  notes: 'ismc-notes-v1',
-  tasks: 'ismc-tasks-v1',
-  links: 'ismc-links-v1',
-  cases: 'ismc-cases-v1',
-  theme: 'ismc-theme',
-  route: 'ismc-route'
+  session:'ismc-session',
+  theme:'ismc-theme',
+  route:'ismc-route'
 };
 
 const state = {
   session: load(keys.session),
-  notes: load(keys.notes) || [],
-  tasks: load(keys.tasks) || [],
-  links: load(keys.links) || [],
-  cases: load(keys.cases) || [],
-  search: '',
   route: localStorage.getItem(keys.route) || '/'
 };
 
-/* Helpers */
+/* ========== Utils ========== */
 function load(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch{ return null; } }
 function save(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
-function now(){ return Date.now(); }
-function fmt(ts){ return new Date(ts).toLocaleString(undefined,{dateStyle:'medium', timeStyle:'short'}); }
-function fmtDateInput(ts){ const d=new Date(ts); return d.toISOString().slice(0,10); }
-function uid(){ return (crypto.randomUUID && crypto.randomUUID()) || Math.random().toString(36).slice(2); }
-function escapeHtml(str=''){ return str.replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function normalize(s=''){ return String(s).trim().replace(/\s+$/,'').replace(/\.+$/,''); }
 
-function normalizePw(s=''){
-  return String(s).trim().replace(/\s+$/,'').replace(/\.+$/,'');
-}
-
-/* Router */
-function go(route){ location.hash = route.startsWith('#') ? route : `#${route}`; }
-function currentRoute(){ return location.hash.replace(/^#/, '') || '/'; }
-function syncRoute(){
-  const route = currentRoute();
-  localStorage.setItem(keys.route, route);
-  highlightNav(route);
-  if (!state.session) return renderLogin();
-  render(route);
-}
-function highlightNav(route){
-  $$('.sidebar nav a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === `#${route}`));
-}
-
-/* Theme */
+/* ========== Theme ========== */
 function initTheme(){
   const pref = localStorage.getItem(keys.theme);
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   if (pref === 'dark' || (pref === null && prefersDark)) document.documentElement.classList.add('dark');
-  $('#themeToggle').textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+  const btn = $('#themeToggle'); if (btn) btn.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
 }
 function toggleTheme(){
-  const isDark = document.documentElement.classList.toggle('dark');
-  localStorage.setItem(keys.theme, isDark ? 'dark' : 'light');
-  $('#themeToggle').textContent = isDark ? '☀️' : '🌙';
+  const on = document.documentElement.classList.toggle('dark');
+  localStorage.setItem(keys.theme, on ? 'dark' : 'light');
+  const btn = $('#themeToggle'); if (btn) btn.textContent = on ? '☀️' : '🌙';
 }
 
-/* LOGIN */
+/* ========== Router ========== */
+function go(route){ location.hash = route.startsWith('#') ? route : `#${route}`; }
+function cur(){ return location.hash.replace(/^#/,'') || '/'; }
+function sync(){
+  const r = cur();
+  localStorage.setItem(keys.route, r);
+  if (!state.session) return renderLogin();
+  render(r);
+}
+window.addEventListener('hashchange', sync);
+
+/* ========== LOGIN ========== */
+function validFor(id, secret){
+  const list = CREDENTIALS[id]; if (!Array.isArray(list)) return false;
+  const n = normalize(secret);
+  return list.some(x => normalize(x) === n);
+}
+
 function renderLogin(){
   const view = $('#view');
   view.innerHTML = `
-    <div class="login card">
+    <div class="login card" style="max-width:420px;margin:40px auto;display:grid;gap:12px">
       <h1>🔐 ISM Cockpit</h1>
-      <div class="field">
+
+      <div class="field" style="display:grid;gap:6px">
         <label for="agentId">Beamtennummer</label>
         <input id="agentId" placeholder="z. B. A017" autocomplete="username">
       </div>
-      <div class="field">
-        <label for="agentPw">Passwort</label>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input id="agentPw" type="password" placeholder="Passwort" autocomplete="current-password" style="flex:1;">
-          <label style="white-space:nowrap; font-size:.9rem;">
+
+      <div class="tabs" style="display:flex;gap:8px">
+        <button class="tab-btn primary" data-tab="pw">Passwort</button>
+        <button class="tab-btn" data-tab="pin">PIN</button>
+      </div>
+
+      <div id="tab-pw" class="tab card" style="display:grid;gap:10px;padding:10px">
+        <label style="display:block">Passwort</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="agentPw" type="password" placeholder="Passwort" autocomplete="current-password" style="flex:1">
+          <label style="white-space:nowrap;font-size:.9rem">
             <input type="checkbox" id="showPw"> Anzeigen
           </label>
         </div>
+        <button id="loginPw" class="primary">Anmelden</button>
       </div>
-      <button id="loginBtn" class="primary">Anmelden</button>
-      <div id="loginError" class="error" style="display:none;color:red;"> Falsche Anmeldedaten. Bitte versuchen Sie es erneut oder wenden Sie sich an Ihre zuständige Dienststelle für weitere Informationen.</div>
+
+      <div id="tab-pin" class="tab card" style="display:none;gap:10px;padding:10px">
+        <label>PIN eingeben</label>
+        <input id="pinDisplay" value="" inputmode="none" readonly style="letter-spacing:.3rem;text-align:center;padding:.6rem;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">
+        <div class="pad" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          ${[1,2,3,4,5,6,7,8,9,'←',0,'C'].map(k => `
+            <button class="pad-key" data-k="${k}" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--card)">${k}</button>
+          `).join('')}
+        </div>
+        <button id="loginPin" class="primary">Anmelden</button>
+      </div>
+
+      <div id="loginError" class="error" style="display:none;color:#d93025;font-weight:600"> Falsche Anmeldedaten. Bitte versuchen Sie es erneut oder wenden Sie sich an die zuständige Dienststelle für weitere Informationen. </div>
     </div>
   `;
 
-  $('#loginBtn').onclick = doLogin;
-  ['agentId','agentPw'].forEach(id => $(`#${id}`).addEventListener('keyup', e => { if (e.key === 'Enter') doLogin(); }));
+  // Tabs
+  $$('.tab-btn').forEach(b => b.onclick = () => {
+    $$('.tab-btn').forEach(x => x.classList.toggle('primary', x===b));
+    const t = b.dataset.tab;
+    $('#tab-pw').style.display = (t==='pw') ? 'grid' : 'none';
+    $('#tab-pin').style.display = (t==='pin') ? 'grid' : 'none';
+    $('#loginError').style.display = 'none';
+  });
+
+  // Passwort anzeigen
   $('#showPw').onchange = e => { $('#agentPw').type = e.target.checked ? 'text' : 'password'; };
+
+  // Enter = Login (Passwort)
+  ['agentId','agentPw'].forEach(id => $(`#${id}`).addEventListener('keyup', e => { if (e.key === 'Enter') doLoginPw(); }));
+
+  // Buttons
+  $('#loginPw').onclick = doLoginPw;
+  $('#loginPin').onclick = doLoginPin;
+
+  // PIN-Pad
+  $$('.pad-key').forEach(k => k.onclick = () => {
+    const v = $('#pinDisplay').value;
+    const key = k.dataset.k;
+    if (key === 'C') $('#pinDisplay').value = '';
+    else if (key === '←') $('#pinDisplay').value = v.slice(0, -1);
+    else $('#pinDisplay').value = (v + key).slice(0, 12);
+  });
+
+  setTimeout(()=>$('#agentId')?.focus(),0);
 }
 
-function doLogin(){
+function doLoginPw(){
   const id = ($('#agentId')?.value || '').trim().toUpperCase();
-  const pw = normalizePw($('#agentPw')?.value || '');
-  const expectedList = AGENTS[id];
-  const ok = Array.isArray(expectedList) && expectedList.some(exp => normalizePw(exp) === pw);
+  const pw = ($('#agentPw')?.value || '');
+  if (validFor(id, pw)) return finishLogin(id);
+  $('#loginError').style.display = 'block';
+}
 
-  if (!ok){
-    $('#loginError').style.display = 'block';
-    return;
-  }
+function doLoginPin(){
+  const id = ($('#agentId')?.value || '').trim().toUpperCase();
+  const pin = ($('#pinDisplay')?.value || '');
+  if (validFor(id, pin)) return finishLogin(id);
+  $('#loginError').style.display = 'block';
+}
 
-  state.session = { agent:id, org:ISM.org, loginAt: Date.now() };
+function finishLogin(id){
+  state.session = { agent: id, org: ISM.org, loginAt: Date.now() };
   save(keys.session, state.session);
-  updateAgentBadge();
-  render(currentRoute());
+  updateBadge();
+  render('/');
 }
 
 function logout(){ state.session=null; localStorage.removeItem(keys.session); renderLogin(); }
-function updateAgentBadge(){
+function updateBadge(){
   const el = document.querySelector('#agentBadge #agentId');
   if (el && state.session){ el.textContent = `${state.session.agent} • ${ISM.org}`; }
 }
 
-/* Views (Platzhalter außer Fälle) */
+/* ========== Views (Minimal) ========== */
 function render(route){
-  if (!state.session) return renderLogin();
-  const view = $('#view'); view.innerHTML='';
-  updateAgentBadge();
+  const view = $('#view'); view.innerHTML = '';
   if (route === '/' || route === '') return renderDashboard();
-  if (route === '/cases') return renderCases();
-  if (route === '/help') return renderHelp();
-  if (route === '/my') return renderMy();
   if (route === '/settings') return renderSettings();
-  const err = document.createElement('div'); err.className='card'; err.textContent='Seite nicht gefunden.'; view.appendChild(err);
+  const card = document.createElement('div'); card.className='card'; card.innerHTML = '<h2>Seite</h2><p>Platzhalter.</p>'; view.append(card);
 }
 
 function renderDashboard(){
-  const view = $('#view');
-  const wrap = document.createElement('div'); wrap.className = 'grid k3';
-  const cards = [
-    ['📁 Fälle', state.cases.length, '#/cases'],
-    ['📝 Notizen', state.notes.length, '#/notes'],
-    ['✅ Aufgaben', state.tasks.length, '#/tasks']
-  ];
-  cards.forEach(([label, meta, href]) => {
-    const c = document.createElement('div'); c.className='card';
-    c.innerHTML = `<h2>${label}</h2><p>${meta}</p><div class="btn-row"><a class="btn" href="${href}">Öffnen</a></div>`;
-    wrap.appendChild(c);
-  });
-  view.appendChild(wrap);
-}
-
-function renderCases(){
-  const view = $('#view');
-  view.innerHTML = '<div class="card"><h2>📁 Fälle</h2><p>Hier kannst du Fälle und Berichte verwalten.</p></div>';
-}
-
-function renderHelp(){
-  const v=$('#view'); v.innerHTML='';
-  const c=document.createElement('div'); c.className='card';
-  c.innerHTML='<h2>🛈 ISM Helpcenter</h2><p>Inhalt folgt. (Platzhalter)</p>';
-  v.append(c);
-}
-
-function renderMy(){
-  const v=$('#view'); v.innerHTML='';
-  const c=document.createElement('div'); c.className='card';
-  c.innerHTML='<h2>🪪 My ISM</h2><p>Ihr Beamtenausweis erscheint in Kürze hier.</p>';
+  const v = $('#view');
+  const c = document.createElement('div'); c.className='card';
+  const who = state.session ? `<strong>${state.session.agent}</strong> · ${state.session.org}` : '—';
+  c.innerHTML = `<h2>🧭 Dashboard</h2><p>Angemeldet: ${who}</p><div class="btn-row"><a class="btn" href="#/settings">Einstellungen</a></div>`;
   v.append(c);
 }
 
 function renderSettings(){
-  const v=$('#view'); v.innerHTML='';
-  const c=document.createElement('div'); c.className='card grid';
-  const h2=document.createElement('h2'); h2.textContent='⚙️ Einstellungen';
-  const themeBtn=Object.assign(document.createElement('button'),{textContent:'Dark/Light umschalten'});
-  themeBtn.addEventListener('click',toggleTheme);
-  const logoutBtn=Object.assign(document.createElement('button'),{textContent:'Abmelden'});
-  logoutBtn.addEventListener('click',logout);
-  c.append(h2,themeBtn,logoutBtn); v.append(c);
+  const v = $('#view');
+  const c = document.createElement('div'); c.className='card';
+  c.innerHTML = `
+    <h2>⚙️ Einstellungen</h2>
+    <div class="btn-row">
+      <button id="themeBtn">Dark/Light umschalten</button>
+      <button id="logoutBtn">Abmelden</button>
+    </div>`;
+  v.append(c);
+  $('#themeBtn').onclick = toggleTheme;
+  $('#logoutBtn').onclick = logout;
 }
 
-/* Init */
+/* ========== Init ========== */
 initTheme();
-syncRoute();
+if (!state.session) renderLogin(); else render('/');
