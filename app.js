@@ -1,4 +1,4 @@
-/* ISM Cockpit – Pseudo-Login mit Ein-Knopf und schlankem Cockpit */
+/* ISM Cockpit – Pseudo-Login „Anmelden als A017“ mit PIN 500011 */
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
@@ -90,24 +90,50 @@ function highlightNav(route){
   $$('.sidebar nav a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === `#${route}`));
 }
 
-/* ---------- Pseudo-Login ---------- */
+/* ---------- Pseudo-Login „Anmelden als A017“ (PIN 500011) ---------- */
 function renderLogin(){
   const view = $('#view');
   view.innerHTML = `
-    <div class="login card" style="max-width:420px;margin:40px auto;display:grid;gap:20px;text-align:center">
+    <div class="login card" style="max-width:420px;margin:40px auto;display:grid;gap:16px;text-align:center">
       <h1>🔐 ISM Cockpit</h1>
-      <p>Willkommen bei ISM Switzerland</p>
+      <p><strong>Anmelden als A017</strong></p>
+
+      <div class="field" style="display:grid;gap:6px;text-align:left">
+        <label for="pinInput">PIN</label>
+        <input id="pinInput" type="password" inputmode="numeric" placeholder="******" maxlength="12"
+               style="padding:.8rem;border-radius:10px;border:1px solid var(--border)">
+        <label style="user-select:none;font-size:.9rem;display:inline-flex;gap:6px;align-items:center">
+          <input type="checkbox" id="showPin"> Anzeigen
+        </label>
+      </div>
+
       <button id="loginBtn" class="primary" style="padding:12px;font-size:1.1rem">Jetzt einloggen</button>
+      <div id="loginError" class="error" style="display:none;color:#d93025;font-weight:600">Falscher PIN.</div>
     </div>
   `;
-  $('#loginBtn').onclick = () => {
-    // Immer erfolgreich – setzt eine einfache Session
+
+  const pin = $('#pinInput');
+  $('#showPin').onchange = e => { pin.type = e.target.checked ? 'text' : 'password'; };
+
+  const tryLogin = () => {
+    const ok = (pin.value || '').trim().replace(/\s+$/,'').replace(/\.+$/,'') === '500011';
+    if (!ok){
+      $('#loginError').style.display = 'block';
+      pin.focus(); pin.select?.();
+      return;
+    }
     state.session = { agent:'A017', org: ISM.org, loginAt: now() };
     save(keys.session, state.session);
     updateAgentBadge();
     render('/');
   };
+
+  $('#loginBtn').onclick = tryLogin;
+  pin.addEventListener('keyup', e => { if (e.key === 'Enter') tryLogin(); });
+
+  setTimeout(()=>pin.focus(), 0);
 }
+
 function logout(){ state.session=null; localStorage.removeItem(keys.session); renderLogin(); }
 function updateAgentBadge(){
   const el = document.querySelector('#agentBadge #agentId');
@@ -151,7 +177,6 @@ function renderCases(){
   `;
   view.append(card);
 
-  // Einfache Demo-Liste (nur Lesen/Anlegen)
   const creator = document.createElement('div'); creator.className='card grid';
   const inp = Object.assign(document.createElement('input'), { placeholder:'Neuer Fall (z. B. CRV-2025-001)' });
   const add = Object.assign(document.createElement('button'), { textContent:'+ Fall anlegen', className:'primary' });
@@ -197,7 +222,7 @@ function renderSettings(){
     save(keys.notes, state.notes); save(keys.tasks, state.tasks); save(keys.links, state.links); save(keys.cases, state.cases);
     render('/');
   };
-  const logoutBtn=Object.assign(document.createElement('button'),{textContent:'Abmelden (zur Pseudo-Login-Maske)'});
+  const logoutBtn=Object.assign(document.createElement('button'),{textContent:'Abmelden (zur Login-Maske)'});
   logoutBtn.onclick = logout;
   c.append(h2, themeBtn, clearBtn, logoutBtn);
   v.append(c);
@@ -210,18 +235,14 @@ $('#importAll')?.addEventListener('click', ()=> $('#importAllFile')?.click());
 $('#importAllFile')?.addEventListener('change', e => {
   const f = e.target.files?.[0]; if (f) importAll(f);
 });
-
 $('#globalSearch')?.addEventListener('input', e => {
   state.search = e.target.value;
   if (state.session) render(currentRoute());
 });
-
 $$('.sidebar nav a').forEach(a => a.addEventListener('click', () => {
   const path = a.getAttribute('href').slice(1);
   localStorage.setItem(keys.route, path);
 }));
-
-/* PWA Install (optional, harmless wenn SW aus) */
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault(); deferredPrompt = e;
