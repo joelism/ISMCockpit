@@ -109,7 +109,7 @@ function renderLogin(){
       <input id="agentPw" type="password" placeholder="Passwort" autocomplete="current-password">
     </div>
     <button id="loginBtn" class="primary">Anmelden</button>
-    <div id="loginError" class="error" style="display:none">Falsche Anmeldedaten.</div>
+    <div id="loginError" class="error" style="display:none">Falsche Anmeldedaten. Bitte versuchen Sie es erneut oder wenden Sie sich an die zuständige Dienststelle für weitere Informationen.</div>
   `;
   view.appendChild(box);
 
