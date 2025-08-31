@@ -1,4 +1,4 @@
-/* ISM Cockpit – Fälle + Dateien (TXT/Bilder) pro Ordner, PIN 500011, Fallnummer-Helfer */
+/* ISM Cockpit – Fälle + Dateien (TXT/Bilder) je Ordner, PIN 500011, Fallnummer-Helfer */
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
@@ -6,8 +6,8 @@ const ISM = { org: 'ISM Switzerland' };
 
 const keys = {
   session: 'ismc-session',
-  cases: 'ismc-cases-v2',          // bump for new structure (files)
-  seq: 'ismc-case-seq',            // sequence for case numbers
+  cases: 'ismc-cases-v2',   // Struktur mit files[]
+  seq: 'ismc-case-seq',     // Zähler für Fallnummern
   theme: 'ismc-theme',
   route: 'ismc-route'
 };
@@ -26,9 +26,11 @@ function now(){ return Date.now(); }
 function fmt(ts){ return new Date(ts).toLocaleString(undefined,{dateStyle:'medium', timeStyle:'short'}); }
 function fmtDateInput(ts){ const d = new Date(ts); return d.toISOString().slice(0,10); }
 function uid(){ return (crypto.randomUUID && crypto.randomUUID()) || Math.random().toString(36).slice(2); }
-function escapeHtml(str=''){ return str.replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',\"'\":'&#39;' }[c])); }
+function escapeHtml(str=''){
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
-/* ---------- IndexedDB (Blobs) ---------- */
+/* ---------- IndexedDB für Dateien (Blobs) ---------- */
 const DB_NAME = 'ismc-files-db';
 const DB_STORE = 'files';
 let dbPromise = null;
@@ -37,10 +39,10 @@ function dbOpen(){
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = (e) => {
+    req.onupgradeneeded = e => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains(DB_STORE)){
-        db.createObjectStore(DB_STORE, { keyPath: 'id' });
+        db.createObjectStore(DB_STORE, { keyPath:'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -50,29 +52,29 @@ function dbOpen(){
 }
 async function dbPutFile(fileRec){
   const db = await dbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
+  return new Promise((res, rej) => {
+    const tx = db.transaction(DB_STORE,'readwrite');
     tx.objectStore(DB_STORE).put(fileRec);
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => res(true);
+    tx.onerror = () => rej(tx.error);
   });
 }
 async function dbGetFile(id){
   const db = await dbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readonly');
-    const req = tx.objectStore(DB_STORE).get(id);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+  return new Promise((res, rej) => {
+    const tx = db.transaction(DB_STORE,'readonly');
+    const rq = tx.objectStore(DB_STORE).get(id);
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
   });
 }
 async function dbDeleteFile(id){
   const db = await dbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
+  return new Promise((res, rej) => {
+    const tx = db.transaction(DB_STORE,'readwrite');
     tx.objectStore(DB_STORE).delete(id);
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => res(true);
+    tx.onerror = () => rej(tx.error);
   });
 }
 
@@ -143,7 +145,6 @@ function renderLogin(){
 
   $('#loginBtn').onclick = tryLogin;
   pin.addEventListener('keyup', e => { if (e.key === 'Enter') tryLogin(); });
-
   setTimeout(()=>pin.focus(), 0);
 }
 
@@ -153,10 +154,11 @@ function updateAgentBadge(){
   if (el && state.session){ el.textContent = `${state.session.agent} • ${ISM.org}`; }
 }
 
-/* ---------- CASE NUMBER HELPER ---------- */
+/* ---------- Fallnummer-Helfer ---------- */
 function nextCaseNumber(){
   const agent = (state.session?.agent) || 'A017';
-  const seq = (parseInt(localStorage.getItem(keys.seq)||'9',10) + 1); // start at 10 -> F010A017
+  // Start bei 10 -> F010A017
+  const seq = (parseInt(localStorage.getItem(keys.seq) || '9', 10) + 1);
   localStorage.setItem(keys.seq, String(seq));
   const triple = String(seq).padStart(3,'0');
   return `F${triple}${agent}`;
@@ -193,15 +195,15 @@ function renderDashboard(){
   view.appendChild(wrap);
 }
 
-/* ---------- CASES / FILE MANAGER + FILES ---------- */
+/* ---------- Fälle / Ordner / Berichte + Dateien ---------- */
 function renderCases(){
   const view = $('#view');
   const h2 = document.createElement('h2'); h2.textContent='📁 Fälle (File Manager)';
   const container = document.createElement('div'); container.className='columns';
 
-  // LEFT: Cases list + create
+  // LEFT: Fälle anlegen/listen
   const left = document.createElement('div'); left.className='pane';
-  const newCaseName = Object.assign(document.createElement('input'), { placeholder:'Fallnummer (z. B. F010A017)', value: nextCaseNumber() });
+  const newCaseName = Object.assign(document.createElement('input'), { placeholder:'Fallnummer (z. B. F010A017)', value: nextCaseNumber() });
   const addCaseBtn = Object.assign(document.createElement('button'), { textContent:'+ Fall anlegen', className:'primary' });
   const genBtn = Object.assign(document.createElement('button'), { textContent:'Fallnummer neu generieren' });
   addCaseBtn.addEventListener('click', () => {
@@ -234,18 +236,19 @@ function renderCases(){
     });
   left.append(list);
 
-  // RIGHT: selected case
+  // RIGHT: ausgewählter Fall
   const right = document.createElement('div'); right.className='pane';
   const selId = sessionStorage.getItem('ismc-selected-case');
   const selected = state.cases.find(c=>c.id===selId) || state.cases[0];
+
   if (selected){
     sessionStorage.setItem('ismc-selected-case', selected.id);
     const head = document.createElement('div'); head.className='card';
     head.innerHTML = `<h3>Fall: ${escapeHtml(selected.title)}</h3>`;
     right.append(head);
 
-    // Folder create
-    const newFolderName = Object.assign(document.createElement('input'), { placeholder:'Neuer Unterordner (z. B. Berichte)' });
+    // Ordner anlegen
+    const newFolderName = Object.assign(document.createElement('input'), { placeholder:'Neuer Unterordner (z. B. Berichte)' });
     const addFolderBtn = Object.assign(document.createElement('button'), { textContent:'+ Unterordner anlegen', className:'primary' });
     addFolderBtn.addEventListener('click', () => {
       const name = newFolderName.value.trim(); if (!name) return;
@@ -255,7 +258,7 @@ function renderCases(){
     const folderCreator = document.createElement('div'); folderCreator.className='card grid'; folderCreator.append(newFolderName, addFolderBtn);
     right.append(folderCreator);
 
-    // Folders list
+    // Ordnerliste
     selected.folders.forEach(f => {
       const box = document.createElement('div'); box.className='card';
       const title = document.createElement('h4'); title.textContent = `Ordner: ${f.name}`;
@@ -264,7 +267,7 @@ function renderCases(){
       const row = document.createElement('div'); row.className='btn-row'; row.append(exportBtn);
       box.append(title, row);
 
-      /* Files section */
+      /* Dateien */
       const filesSec = document.createElement('div'); filesSec.className='grid';
       const fileInput = Object.assign(document.createElement('input'), { type:'file', multiple:true, accept:'.txt,image/*' });
       const uploadBtn = Object.assign(document.createElement('button'), { textContent:'+ Dateien hinzufügen' });
@@ -274,10 +277,10 @@ function renderCases(){
         for (const file of files){
           const id = uid();
           const isImage = file.type.startsWith('image/');
-          // Store blob in IndexedDB
+          // Blob in IndexedDB ablegen
           const rec = { id, name:file.name, type:file.type, size:file.size, created: now(), blob: file };
           await dbPutFile(rec);
-          // Keep metadata in folder
+          // Metadaten im Ordner behalten
           f.files = f.files || [];
           f.files.push({ id, name:file.name, type:file.type, size:file.size, created: now(), isImage });
         }
@@ -285,7 +288,7 @@ function renderCases(){
         render('/cases');
       });
       filesSec.append(uploadBtn);
-      // Files list
+
       const filesList = document.createElement('div'); filesList.className='list';
       (f.files||[]).slice().sort((a,b)=>b.created-a.created).forEach(meta => {
         const item = document.createElement('div'); item.className='file';
@@ -315,10 +318,8 @@ function renderCases(){
         });
         actions.append(viewBtn, delBtn);
 
-        // Optional thumbnail
         const wrap = document.createElement('div'); wrap.style.display='grid'; wrap.style.gap='8px';
         if (meta.isImage){
-          // Try to show a thumb via object URL
           (async () => {
             const rec = await dbGetFile(meta.id);
             if (rec){
@@ -340,7 +341,7 @@ function renderCases(){
       filesSec.append(filesList);
       box.append(document.createElement('hr'), document.createTextNode('Dateien'), filesSec);
 
-      /* Reports section */
+      /* Berichte */
       const form = document.createElement('div'); form.className='grid';
       const type = document.createElement('select');
       ['Personenbericht','Erstbericht','Abschlussbericht'].forEach(t => {
@@ -360,7 +361,6 @@ function renderCases(){
       form.append(type, date, rtitle, body, addDoc);
       box.append(form);
 
-      // Docs list
       if (f.docs && f.docs.length){
         const dl = document.createElement('div'); dl.className='list';
         f.docs.slice().sort((a,b)=>b.updated-a.updated).forEach(d => {
@@ -386,48 +386,55 @@ function renderCases(){
       right.append(box);
     });
 
-    // Right pane click handlers
+    // Klick-Handler rechts (Bearbeiten/Löschen Bericht)
     right.addEventListener('click', e => {
-      const id = e.target.dataset?.id;
-      const fid = e.target.dataset?.fid;
-      const act = e.target.dataset?.act;
+      const t = e.target;
+      const id = t?.dataset?.id;
+      const fid = t?.dataset?.fid;
+      const act = t?.dataset?.act;
       const selected2 = state.cases.find(c=>c.id===sessionStorage.getItem('ismc-selected-case'));
       const folder = selected2?.folders.find(x=>x.id===fid);
-      if (act === 'edit' && id && folder){
-        const doc = folder.docs.find(x=>x.id===id);
-        if (!doc) return;
-        const nt = prompt('Titel bearbeiten:', doc.title || '');
-        if (nt === null) return;
-        const nb = prompt('Text bearbeiten:', doc.body || '');
-        if (nb === null) return;
-        doc.title = nt.trim(); doc.body = nb.trim(); doc.updated = now(); save(keys.cases, state.cases); render('/cases');
-      } else if (act === 'del' && id && folder){
+      if (!folder) return;
+      if (act === 'edit' && id){
+        const doc = folder.docs.find(x=>x.id===id); if (!doc) return;
+        const nt = prompt('Titel bearbeiten:', doc.title || ''); if (nt === null) return;
+        const nb = prompt('Text bearbeiten:', doc.body || '');  if (nb === null) return;
+        doc.title = nt.trim(); doc.body = nb.trim(); doc.updated = now();
+        save(keys.cases, state.cases); render('/cases');
+      } else if (act === 'del' && id){
         if (confirm('Bericht löschen?')){
-          folder.docs = folder.docs.filter(x=>x.id!==id); save(keys.cases, state.cases); render('/cases');
+          folder.docs = folder.docs.filter(x=>x.id!==id);
+          save(keys.cases, state.cases); render('/cases');
         }
       }
-    }, { once:true });
+    });
   } else {
     const empty = document.createElement('div'); empty.className='card'; empty.textContent='Noch kein Fall angelegt.';
     right.append(empty);
   }
 
-  // Left pane click handlers
-  left.addEventListener('click', e => {
-    const id = e.target.dataset?.id;
-    const act = e.target.dataset?.act;
-    if (act === 'open' && id){ sessionStorage.setItem('ismc-selected-case', id); render('/cases'); }
-    else if (act === 'del' && id){
+  // Klick-Handler links (Fall öffnen/löschen)
+  left.addEventListener('click', async e => {
+    const t = e.target;
+    const id = t?.dataset?.id;
+    const act = t?.dataset?.act;
+    if (act === 'open' && id){
+      sessionStorage.setItem('ismc-selected-case', id); render('/cases');
+    } else if (act === 'del' && id){
       if (confirm('Diesen Fall komplett löschen?')){
-        // delete file blobs as well
         const c = state.cases.find(x=>x.id===id);
         if (c){
-          (c.folders||[]).forEach(f => (f.files||[]).forEach(async m => { try{ await dbDeleteFile(m.id); }catch{} }));
+          for (const f of (c.folders||[])){
+            for (const m of (f.files||[])){ try{ await dbDeleteFile(m.id); }catch{} }
+          }
         }
-        state.cases = state.cases.filter(c=>c.id!==id); save(keys.cases, state.cases); sessionStorage.removeItem('ismc-selected-case'); render('/cases');
+        state.cases = state.cases.filter(c=>c.id!==id);
+        save(keys.cases, state.cases);
+        sessionStorage.removeItem('ismc-selected-case');
+        render('/cases');
       }
     }
-  }, { once:true });
+  });
 
   view.append(h2, container);
   container.append(left, right);
@@ -436,7 +443,7 @@ function renderCases(){
 function exportFolder(fall, folder){
   const data = JSON.stringify({
     case: fall.title, folder: folder.name, exportedAt: new Date().toISOString(),
-    docs: folder.docs||[], files: (folder.files||[]).map(({id, name, type, size, created}) => ({id,name,type,size,created}))
+    docs: folder.docs||[], files: (folder.files||[]).map(({id,name,type,size,created})=>({id,name,type,size,created}))
   }, null, 2);
   const blob = new Blob([data], { type:'application/json' });
   const url = URL.createObjectURL(blob);
@@ -446,7 +453,7 @@ function exportFolder(fall, folder){
   URL.revokeObjectURL(url);
 }
 
-/* ---------- Simple Help/My/Settings ---------- */
+/* ---------- Restseiten ---------- */
 function renderHelp(){
   const v=$('#view'); v.innerHTML='';
   const c=document.createElement('div'); c.className='card';
@@ -468,7 +475,6 @@ function renderSettings(){
   const clearBtn=Object.assign(document.createElement('button'),{textContent:'Alle Daten löschen (lokal)'});
   clearBtn.onclick = async () => {
     if (!confirm('Wirklich alle lokalen Cockpit-Daten löschen?')) return;
-    // wipe case data + blobs
     for (const c of state.cases) for (const f of (c.folders||[])) for (const m of (f.files||[])){ try{ await dbDeleteFile(m.id); }catch{} }
     state.cases = []; save(keys.cases, state.cases);
     render('/');
@@ -479,10 +485,9 @@ function renderSettings(){
   v.append(c);
 }
 
-/* ---------- Global Events ---------- */
+/* ---------- Global ---------- */
 $('#themeToggle')?.addEventListener('click', toggleTheme);
 $('#exportAll')?.addEventListener('click', () => {
-  // Export only metadata (not blobs)
   const data = JSON.stringify({ exportedAt:new Date().toISOString(), cases: state.cases }, null, 2);
   const blob = new Blob([data], { type:'application/json' });
   const url = URL.createObjectURL(blob);
