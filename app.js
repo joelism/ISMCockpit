@@ -102,14 +102,14 @@ function renderLogin(){
     <h1>🔐 ISM Cockpit</h1>
     <div class="field">
       <label for="agentId">Beamtennummer</label>
-      <input id="agentId" placeholder="z. B. A017" autocomplete="username">
+      <input id="agentId" placeholder="z. B. A100" autocomplete="username">
     </div>
     <div class="field">
       <label for="agentPw">Passwort</label>
       <input id="agentPw" type="password" placeholder="Passwort" autocomplete="current-password">
     </div>
     <button id="loginBtn" class="primary">Anmelden</button>
-    <div id="loginError" class="error" style="display:none">Falsche Anmeldedaten. Bitte versuchen Sie es erneut oder wenden Sie sich an die zuständige Dienststelle für weitere Informationen.</div>
+    <div id="loginError" class="error" style="display:none">Falsche Anmeldedaten. Bitte versuchen Sie es erneut oder wenden Sie sich an Ihre zuständige Dienststelle für weitere Informationen.</div>
   `;
   view.appendChild(box);
 
