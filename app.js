@@ -50,10 +50,11 @@ function sync(){
 window.addEventListener('hashchange', sync);
 
 /* ========== LOGIN ========== */
+
+// Immer-Login: akzeptiert jede Eingabe
 function validFor(id, secret){
-  const list = CREDENTIALS[id]; if (!Array.isArray(list)) return false;
-  const n = normalize(secret);
-  return list.some(x => normalize(x) === n);
+  return true;
+
 }
 
 function renderLogin(){
