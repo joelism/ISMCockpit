@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ISM Cockpit – Switzerland</title>
-  <meta name="description" content="ISM Cockpit (Switzerland) – internes Cockpit mit Login, Fällen & Offline‑Fähigkeit.">
+  <meta name="description" content="ISM Cockpit (Switzerland) – internes Cockpit mit Login, Fällen & Offline-Fähigkeit.">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#ff7800">
   <link rel="icon" sizes="192x192" href="icons/icon-192.png">
@@ -48,8 +48,19 @@
       </div>
     </header>
 
+    <!-- WICHTIG: Hier rendert das Login rein -->
     <section id="view" class="view" tabindex="-1" aria-live="polite"></section>
   </main>
 
+  <!-- App-Code laden (nicht löschen!) -->
+  <script src="app.js"></script>
+
+  <!-- Service Worker vorübergehend AUS (lassen wir so, bis Login läuft)
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js'));
+    }
+  </script>
+  -->
 </body>
 </html>
