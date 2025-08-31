@@ -2,8 +2,36 @@
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
-const ISM = { org: 'ISM Switzerland' };
-const AGENTS = { 'A017': '1107' };
+const AGENTS = { 'A017': 'BananaTomate1107' };
+window.ISM_VERSION = 'login-hotfix-109';
+
+// --- Login (super-tolerant + klarer Ablauf) ---
+function doLogin(){
+  const idEl = document.getElementById('agentId');
+  const pwEl = document.getElementById('agentPw');
+  const errEl = document.getElementById('loginError');
+
+  const id = (idEl?.value || '').trim().toUpperCase();
+  let pw = (pwEl?.value || '').trim();
+
+  // versehentliche Punkte/Leerzeichen am Ende entfernen
+  pw = pw.replace(/\s+$/,'').replace(/\.+$/,'');
+
+  // Vergleich NUR gegen den hinterlegten String
+  const expected = AGENTS[id];
+  const ok = typeof expected === 'string' && pw === expected;
+
+  if (!ok) {
+    if (errEl) errEl.style.display = 'block';
+    return;
+  }
+
+  // Erfolg → Session setzen & Cockpit rendern
+  state.session = { agent:id, org:ISM.org, loginAt: Date.now() };
+  save(keys.session, state.session);
+  updateAgentBadge();
+  render(currentRoute());
+}
 
 const keys = {
   session: 'ismc-session',
