@@ -3,7 +3,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
 const ISM = { org: 'ISM Switzerland' };
-const AGENTS = { 'A017': 'BananaTomate1107' };
+const AGENTS = { 'A017': '1107' };
 
 const keys = {
   session: 'ismc-session',
