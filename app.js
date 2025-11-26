@@ -1,5 +1,7 @@
+/* ISM Cockpit – police DB style, PIN-Login, Cases/Contacts/Reports
+   Build: policeDB4
+*/
 
-/* ISM Cockpit – simplified, stable police-style DB (orange/black), build: policeDB3 */
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
 
@@ -16,48 +18,95 @@ const KEYS = {
 const state = {
   session: load(KEYS.session),
   cases: load(KEYS.cases) || [],
-  search: "",
+  search: ""
 };
 
 /* ---------- Utils ---------- */
+
 function load(k) {
-  try { return JSON.parse(localStorage.getItem(k)); }
-  catch { return null; }
+  try {
+    return JSON.parse(localStorage.getItem(k));
+  } catch {
+    return null;
+  }
 }
-function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
-function now() { return Date.now(); }
+
+function save(k, v) {
+  localStorage.setItem(k, JSON.stringify(v));
+}
+
+function now() {
+  return Date.now();
+}
+
 function fmt(ts) {
-  return new Date(ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return new Date(ts).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
 }
+
 function fmtDateInput(ts) {
   const d = new Date(ts);
   return d.toISOString().slice(0, 10);
 }
+
 function fmtDateTimeLocal(ts) {
   const d = new Date(ts);
   const pad = n => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return (
+    d.getFullYear() +
+    "-" +
+    pad(d.getMonth() + 1) +
+    "-" +
+    pad(d.getDate()) +
+    "T" +
+    pad(d.getHours()) +
+    ":" +
+    pad(d.getMinutes())
+  );
 }
+
 function uid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return Math.random().toString(36).slice(2);
 }
+
 function escapeHtml(str = "") {
-  return String(str).replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[c]));
+  return String(str).replace(/[&<>"']/g, c => {
+    return {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    }[c];
+  });
 }
 
 /* ---------- Theme ---------- */
+
 function initTheme() {
   const pref = localStorage.getItem(KEYS.theme);
-  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  if (pref === "dark" || (pref === null && prefersDark)) {
+  const prefersDark =
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+  const useDark = pref === "dark" || (pref === null && prefersDark);
+  if (useDark) {
     document.documentElement.classList.add("dark");
+  } else {
+    document.documentElement.classList.remove("dark");
   }
+
   const t = $("#themeToggle");
-  if (t) t.textContent = document.documentElement.classList.contains("dark") ? "☀️" : "🌙";
+  if (t) {
+    t.textContent = document.documentElement.classList.contains("dark")
+      ? "☀️"
+      : "🌙";
+  }
 }
+
 function toggleTheme() {
   const isDark = document.documentElement.classList.toggle("dark");
   localStorage.setItem(KEYS.theme, isDark ? "dark" : "light");
@@ -66,23 +115,23 @@ function toggleTheme() {
 }
 
 /* ---------- Router ---------- */
+
 function currentRoute() {
   return location.hash.replace(/^#/, "") || "/";
 }
-function go(route) {
-  if (!route.startsWith("#")) route = "#" + route;
-  location.hash = route;
-}
+
 function highlightNav(route) {
   $$(".sidebar nav a").forEach(a => {
     const href = a.getAttribute("href") || "";
     a.classList.toggle("active", href === "#" + route);
   });
 }
+
 function syncRoute() {
   const route = currentRoute();
   localStorage.setItem(KEYS.route, route);
   highlightNav(route);
+
   if (!state.session) {
     renderLogin();
   } else {
@@ -90,12 +139,14 @@ function syncRoute() {
   }
 }
 
-/* ---------- Login (PIN 500011, pseudo) ---------- */
+/* ---------- Login – PIN 500011, Agent A017 ---------- */
+
 function renderLogin() {
   const view = $("#view");
   if (!view) return;
+
   view.innerHTML = `
-    <div class="login card db-card" style="max-width:460px;margin:40px auto;display:grid;gap:18px;">
+    <div class="login card db-card" style="max-width:480px;margin:40px auto;display:grid;gap:18px;">
       <header class="db-header">
         <div class="db-title">ISM Cockpit</div>
         <div class="db-subtitle">Secure Case Database · Switzerland</div>
@@ -104,7 +155,8 @@ function renderLogin() {
         <p><strong>Anmelden als A017</strong></p>
         <div class="field" style="display:grid;gap:6px;text-align:left">
           <label for="pinInput">PIN</label>
-          <input id="pinInput" class="db-input" type="password" inputmode="numeric" maxlength="12" placeholder="*****">
+          <input id="pinInput" class="db-input" type="password" inputmode="numeric"
+                 maxlength="12" placeholder="*****">
           <label class="db-checkbox">
             <input type="checkbox" id="showPin"> Anzeigen
           </label>
@@ -112,7 +164,9 @@ function renderLogin() {
         <button id="loginBtn" class="primary db-primary">Jetzt einloggen</button>
         <div id="loginError" class="db-error" style="display:none;">Falscher PIN.</div>
       </section>
-      <footer class="db-footer">ISM Internal Use Only · Unauthorized access prohibited</footer>
+      <footer class="db-footer">
+        ISM Internal Use Only · Unauthorized access prohibited
+      </footer>
     </div>
   `;
 
@@ -130,11 +184,15 @@ function renderLogin() {
   function tryLogin() {
     const value = (pin.value || "").trim();
     if (value === "500011") {
-      state.session = { agent: "A017", org: ISM.org, loginAt: now() };
+      state.session = {
+        agent: "A017",
+        org: ISM.org,
+        loginAt: now()
+      };
       save(KEYS.session, state.session);
       updateAgentBadge();
       const route = localStorage.getItem(KEYS.route) || "/cases";
-      go(route);
+      location.hash = "#" + route;
     } else {
       if (error) error.style.display = "block";
       pin.focus();
@@ -144,15 +202,19 @@ function renderLogin() {
 
   if (btn) btn.addEventListener("click", tryLogin);
   if (pin) {
-    pin.addEventListener("keyup", e => { if (e.key === "Enter") tryLogin(); });
+    pin.addEventListener("keyup", e => {
+      if (e.key === "Enter") tryLogin();
+    });
     setTimeout(() => pin.focus(), 0);
   }
 }
+
 function logout() {
   state.session = null;
   localStorage.removeItem(KEYS.session);
   renderLogin();
 }
+
 function updateAgentBadge() {
   const el = $("#agentBadge #agentId");
   if (el && state.session) {
@@ -160,7 +222,8 @@ function updateAgentBadge() {
   }
 }
 
-/* ---------- Case helpers ---------- */
+/* ---------- Cases helpers ---------- */
+
 function nextCaseNumber() {
   const agent = (state.session && state.session.agent) || "A017";
   const raw = parseInt(localStorage.getItem(KEYS.seq) || "9", 10) + 1;
@@ -169,10 +232,12 @@ function nextCaseNumber() {
   return `F${triple}${agent}`;
 }
 
-/* ---------- Views ---------- */
+/* ---------- Main render ---------- */
+
 function render(route) {
   const view = $("#view");
   if (!view) return;
+
   view.innerHTML = "";
   updateAgentBadge();
 
@@ -189,12 +254,16 @@ function render(route) {
 }
 
 /* ---------- Dashboard ---------- */
+
 function renderDashboard() {
   const view = $("#view");
   const wrap = document.createElement("div");
   wrap.className = "grid k3";
 
-  const totalShorts = state.cases.reduce((acc, c) => acc + (c.shorts ? c.shorts.length : 0), 0);
+  const totalShorts = state.cases.reduce(
+    (acc, c) => acc + (c.shorts ? c.shorts.length : 0),
+    0
+  );
 
   const c1 = document.createElement("div");
   c1.className = "card db-card";
@@ -202,7 +271,9 @@ function renderDashboard() {
     <h2>📁 Fälle</h2>
     <p class="db-kpi">${state.cases.length}</p>
     <p class="db-kpi-label">Gesamt-Fälle</p>
-    <div class="btn-row"><a class="btn" href="#/cases">Fallübersicht öffnen</a></div>
+    <div class="btn-row">
+      <a class="btn" href="#/cases">Fallübersicht öffnen</a>
+    </div>
   `;
 
   const c2 = document.createElement("div");
@@ -218,13 +289,15 @@ function renderDashboard() {
   c3.innerHTML = `
     <h2>🪪 My ISM</h2>
     <p>Ihr Ausweis erscheint in Kürze hier.</p>
-    <div class="btn-row"><a class="btn" href="#/my">My ISM öffnen</a></div>
+    <div class="btn-row">
+      <a class="btn" href="#/my">My ISM öffnen</a>
+    </div>
   `;
 
   wrap.append(c1, c2, c3);
   view.appendChild(wrap);
 
-  // optional: simple feed of latest 5 case notes (Kurzberichte)
+  // Letzte Kurzberichte
   const feedCard = document.createElement("div");
   feedCard.className = "card db-card";
   feedCard.innerHTML = `<h3>Letzte Kurzberichte</h3>`;
@@ -240,10 +313,12 @@ function renderDashboard() {
     (c.shorts || []).forEach(s => allShorts.push({ caseTitle: c.title, s }));
   });
   allShorts.sort((a, b) => new Date(b.s.dt) - new Date(a.s.dt));
+
   if (allShorts.length === 0) {
     const row = document.createElement("div");
     row.className = "db-row";
-    row.innerHTML = `<div class="db-cell-empty" colspan="3">Noch keine Kurzberichte vorhanden.</div>`;
+    row.innerHTML =
+      `<div class="db-cell-empty" colspan="3">Noch keine Kurzberichte vorhanden.</div>`;
     table.appendChild(row);
   } else {
     allShorts.slice(0, 8).forEach(entry => {
@@ -257,32 +332,39 @@ function renderDashboard() {
       table.appendChild(row);
     });
   }
+
   feedCard.appendChild(table);
   view.appendChild(feedCard);
 }
 
 /* ---------- Fälle ---------- */
+
 function renderCases() {
   const view = $("#view");
+
   const title = document.createElement("h2");
   title.textContent = "📁 Fall-Datenbank";
 
   const layout = document.createElement("div");
   layout.className = "columns db-columns";
 
-  /* Left column: create & list cases */
+  /* Left column: new + search + list */
   const left = document.createElement("div");
   left.className = "pane db-pane-left";
 
+  // Neuer Fall
   const creatorCard = document.createElement("div");
   creatorCard.className = "card db-card grid";
+
   const newCaseInput = document.createElement("input");
   newCaseInput.className = "db-input";
   newCaseInput.placeholder = "Fallnummer (z. B. F010A017)";
   newCaseInput.value = nextCaseNumber();
+
   const addBtn = document.createElement("button");
   addBtn.className = "primary db-primary";
   addBtn.textContent = "+ Fall anlegen";
+
   const regenBtn = document.createElement("button");
   regenBtn.className = "db-btn-ghost";
   regenBtn.textContent = "Fallnummer neu generieren";
@@ -295,16 +377,17 @@ function renderCases() {
       title: name,
       created: now(),
       status: "open",
-      folders: [],          // {id, name}
-      reports: [],          // {id, type, date, title, body, updated}
-      contacts: [],         // {id, role, name, dob, elnr, address, email, notes}
-      shorts: []            // {id, dt, text}
+      folders: [],
+      reports: [],
+      contacts: [],
+      shorts: []
     };
     state.cases.push(c);
     save(KEYS.cases, state.cases);
     newCaseInput.value = nextCaseNumber();
     render("/cases");
   });
+
   regenBtn.addEventListener("click", () => {
     newCaseInput.value = nextCaseNumber();
   });
@@ -312,11 +395,12 @@ function renderCases() {
   creatorCard.append(newCaseInput, addBtn, regenBtn);
   left.appendChild(creatorCard);
 
+  // Suche
   const searchCard = document.createElement("div");
   searchCard.className = "card db-card";
   const searchInput = document.createElement("input");
   searchInput.className = "db-input";
-  searchInput.placeholder = "Suche nach Fallnummer / Name / EL-Nr.";
+  searchInput.placeholder = "Suche nach Fallnummer / Name / Telefonnummer";
   searchInput.value = state.search;
   searchInput.addEventListener("input", e => {
     state.search = e.target.value;
@@ -325,6 +409,7 @@ function renderCases() {
   searchCard.appendChild(searchInput);
   left.appendChild(searchCard);
 
+  // Liste
   const list = document.createElement("div");
   list.className = "list db-case-list";
 
@@ -338,18 +423,22 @@ function renderCases() {
         c.title,
         ...(c.contacts || []).map(x => x.name || ""),
         ...(c.contacts || []).map(x => x.elnr || "")
-      ].join(" ").toLowerCase();
+      ]
+        .join(" ")
+        .toLowerCase();
       return haystack.includes(q);
     });
 
   filtered.forEach(c => {
     const item = document.createElement("div");
     item.className = "case db-case-row";
-    const statusLabel = c.status === "closed"
-      ? "Abgeschlossen"
-      : c.status === "progress"
-      ? "In Bearbeitung"
-      : "Offen";
+
+    const statusLabel =
+      c.status === "closed"
+        ? "Abgeschlossen"
+        : c.status === "progress"
+        ? "In Bearbeitung"
+        : "Offen";
 
     item.innerHTML = `
       <div class="db-case-main">
@@ -372,13 +461,14 @@ function renderCases() {
 
   left.appendChild(list);
 
-  /* Click handler for list */
+  // Clicks in der Liste
   left.addEventListener("click", e => {
     const btn = e.target.closest("button");
     if (!btn) return;
     const id = btn.dataset.id;
     const act = btn.dataset.act;
     if (!id || !act) return;
+
     const c = state.cases.find(x => x.id === id);
     if (!c) return;
 
@@ -396,6 +486,7 @@ function renderCases() {
   });
 
   /* Right column: selected case */
+
   const right = document.createElement("div");
   right.className = "pane db-pane-right";
 
@@ -412,11 +503,14 @@ function renderCases() {
 
     const head = document.createElement("div");
     head.className = "card db-card db-case-head";
-    const statusLabel = selected.status === "closed"
-      ? "Abgeschlossen"
-      : selected.status === "progress"
-      ? "In Bearbeitung"
-      : "Offen";
+
+    const statusLabel =
+      selected.status === "closed"
+        ? "Abgeschlossen"
+        : selected.status === "progress"
+        ? "In Bearbeitung"
+        : "Offen";
+
     head.innerHTML = `
       <div class="db-case-head-main">
         <div class="db-case-head-title">${escapeHtml(selected.title)}</div>
@@ -424,11 +518,18 @@ function renderCases() {
       </div>
       <div class="db-case-head-actions">
         <select id="caseStatusSelect" class="db-input db-select">
-          <option value="open"${selected.status === "open" ? " selected" : ""}>Offen</option>
-          <option value="progress"${selected.status === "progress" ? " selected" : ""}>In Bearbeitung</option>
-          <option value="closed"${selected.status === "closed" ? " selected" : ""}>Abgeschlossen</option>
+          <option value="open"${
+            selected.status === "open" ? " selected" : ""
+          }>Offen</option>
+          <option value="progress"${
+            selected.status === "progress" ? " selected" : ""
+          }>In Bearbeitung</option>
+          <option value="closed"${
+            selected.status === "closed" ? " selected" : ""
+          }>Abgeschlossen</option>
         </select>
-        <span class="db-status db-status-${selected.status || "open"}" id="caseStatusBadge">${statusLabel}</span>
+        <span class="db-status db-status-${selected.status ||
+          "open"}" id="caseStatusBadge">${statusLabel}</span>
       </div>
       <div class="tabbar">
         <button data-tab="files" class="active">📂 Akte</button>
@@ -453,6 +554,7 @@ function renderCases() {
       if (name === "shorts") renderTabShorts(selected, body);
       if (name === "contacts") renderTabContacts(selected, body);
     }
+
     showTab("files");
 
     const tabbar = $(".tabbar", head);
@@ -467,11 +569,12 @@ function renderCases() {
     statusSelect.addEventListener("change", e => {
       selected.status = e.target.value;
       save(KEYS.cases, state.cases);
-      const lbl = selected.status === "closed"
-        ? "Abgeschlossen"
-        : selected.status === "progress"
-        ? "In Bearbeitung"
-        : "Offen";
+      const lbl =
+        selected.status === "closed"
+          ? "Abgeschlossen"
+          : selected.status === "progress"
+          ? "In Bearbeitung"
+          : "Offen";
       statusBadge.textContent = lbl;
       statusBadge.className = "db-status db-status-" + selected.status;
       render("/cases");
@@ -482,16 +585,20 @@ function renderCases() {
   view.append(title, layout);
 }
 
-/* ----- Tab: Akte (nur Unterordner, ohne echte Dateien – Platzhalter) ----- */
+/* ----- Tab: Akte (Ordner / Platzhalter) ----- */
+
 function renderTabFiles(selected, body) {
   const creator = document.createElement("div");
   creator.className = "card db-card grid";
+
   const input = document.createElement("input");
   input.className = "db-input";
   input.placeholder = "Neuer Unterordner (z. B. Berichte, Beweise, Fotos)";
+
   const btn = document.createElement("button");
   btn.className = "primary db-primary";
   btn.textContent = "+ Unterordner anlegen";
+
   btn.addEventListener("click", () => {
     const name = input.value.trim();
     if (!name) return;
@@ -500,6 +607,7 @@ function renderTabFiles(selected, body) {
     input.value = "";
     render("/cases");
   });
+
   creator.append(input, btn);
   body.appendChild(creator);
 
@@ -511,27 +619,33 @@ function renderTabFiles(selected, body) {
         <div class="db-section-title">Ordner: ${escapeHtml(f.name)}</div>
         <div class="db-section-meta">Platzhalter für Dateien (lokal).</div>
       </div>
-      <p style="font-size:.85rem;opacity:.8;">Später können hier echte Dateien (Bilder, TXT) verknüpft werden.</p>
+      <p style="font-size:.85rem;opacity:.8;">
+        Später können hier echte Dateien (Bilder, TXT) verknüpft werden.
+      </p>
     `;
     body.appendChild(card);
   });
 }
 
-/* ----- Tab: Berichte ----- */
+/* ----- Tab: Berichte + Gesamtbericht-PDF ----- */
+
 function renderTabReports(selected, body) {
   const card = document.createElement("div");
   card.className = "card db-card";
+
   const form = document.createElement("div");
   form.className = "grid db-form-grid";
 
   const typeSel = document.createElement("select");
   typeSel.className = "db-input db-select";
-  ["Personenbericht", "Erstbericht", "Abschlussbericht", "Kurzbericht"].forEach(t => {
-    const o = document.createElement("option");
-    o.value = t;
-    o.textContent = t;
-    typeSel.appendChild(o);
-  });
+  ["Personenbericht", "Erstbericht", "Abschlussbericht", "Kurzbericht"].forEach(
+    t => {
+      const o = document.createElement("option");
+      o.value = t;
+      o.textContent = t;
+      typeSel.appendChild(o);
+    }
+  );
 
   const dateInput = document.createElement("input");
   dateInput.type = "date";
@@ -569,12 +683,21 @@ function renderTabReports(selected, body) {
     render("/cases");
   });
 
+  const pdfBtn = document.createElement("button");
+  pdfBtn.className = "db-btn-ghost";
+  pdfBtn.textContent = "Gesamtberichte als PDF";
+  pdfBtn.addEventListener("click", () => exportCasePdf(selected));
+
+  const btnRow = document.createElement("div");
+  btnRow.className = "btn-row";
+  btnRow.append(saveBtn, pdfBtn);
+
   form.append(
     labelWrap("Typ", typeSel),
     labelWrap("Datum", dateInput),
     labelWrap("Titel", titleInput),
     labelWrap("Text", bodyInput),
-    saveBtn
+    btnRow
   );
 
   card.innerHTML = `<div class="db-section-title">Bericht erfassen</div>`;
@@ -585,26 +708,32 @@ function renderTabReports(selected, body) {
   table.className = "db-table";
   const head = document.createElement("div");
   head.className = "db-row db-row-head";
-  head.innerHTML = `<div>Typ</div><div>Datum</div><div>Titel</div><div>Zuletzt</div><div>Aktionen</div>`;
+  head.innerHTML =
+    `<div>Typ</div><div>Datum</div><div>Titel</div><div>Zuletzt</div><div>Aktionen</div>`;
   table.appendChild(head);
 
   const docs = selected.reports.slice().sort((a, b) => b.updated - a.updated);
+
   if (docs.length === 0) {
     const row = document.createElement("div");
     row.className = "db-row";
-    row.innerHTML = `<div class="db-cell-empty" colspan="5">Noch keine Berichte.</div>`;
+    row.innerHTML =
+      `<div class="db-cell-empty" colspan="5">Noch keine Berichte.</div>`;
     table.appendChild(row);
   } else {
     docs.forEach(d => {
       const row = document.createElement("div");
       row.className = "db-row";
+
       const actions = document.createElement("div");
       actions.className = "btn-row";
 
       const viewBtn = document.createElement("button");
       viewBtn.textContent = "Anzeigen";
       viewBtn.addEventListener("click", () => {
-        alert(`Typ: ${d.type}\nDatum: ${d.date}\nTitel: ${d.title}\n\n${d.body}`);
+        alert(
+          `Typ: ${d.type}\nDatum: ${d.date}\nTitel: ${d.title}\n\n${d.body}`
+        );
       });
 
       const editBtn = document.createElement("button");
@@ -641,6 +770,7 @@ function renderTabReports(selected, body) {
       const actCell = document.createElement("div");
       actCell.appendChild(actions);
       row.appendChild(actCell);
+
       table.appendChild(row);
     });
   }
@@ -648,10 +778,153 @@ function renderTabReports(selected, body) {
   body.appendChild(table);
 }
 
+/* Gesamtberichte als „PDF“ (über Druckdialog) */
+
+function exportCasePdf(selected) {
+  try {
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert(
+        "Popup blockiert. Bitte Popups/Pop-ups für diese Seite im Browser erlauben."
+      );
+      return;
+    }
+
+    const title = escapeHtml(selected.title || "");
+
+    let html = `
+      <!doctype html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Gesamtbericht ${title}</title>
+        <style>
+          body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            padding: 24px;
+            background: #ffffff;
+            color: #000000;
+            line-height: 1.4;
+          }
+          h1 { font-size: 22px; margin-bottom: 0.2em; }
+          h2 { font-size: 18px; margin-top: 1.4em; margin-bottom: 0.3em; }
+          h3 { font-size: 15px; margin-top: 1em; margin-bottom: 0.2em; }
+          .meta { font-size: 11px; color: #444; margin-bottom: 0.8em; }
+          .block { border-top: 1px solid #ccc; padding-top: 0.6em; margin-top: 0.6em; }
+          ul { padding-left: 1.2em; }
+        </style>
+      </head>
+      <body>
+    `;
+
+    html += `<h1>Gesamtbericht ${title}</h1>`;
+    html += `<p class="meta">Generiert: ${escapeHtml(
+      new Date().toLocaleString()
+    )}</p>`;
+
+    html += `<h2>Fallinformationen</h2>`;
+    html += `<p><strong>Aktenzeichen:</strong> ${title}<br><strong>Angelegt:</strong> ${escapeHtml(
+      fmt(selected.created)
+    )}</p>`;
+
+    html += `<h2>Beteiligte Kontakte</h2>`;
+    if (!selected.contacts || !selected.contacts.length) {
+      html += `<p>Keine Kontakte erfasst.</p>`;
+    } else {
+      html += "<ul>";
+      selected.contacts.forEach(c => {
+        html += "<li><strong>" + escapeHtml(c.name || "") + "</strong>";
+        if (c.role) html += " (" + escapeHtml(c.role) + ")";
+        const extra = [];
+        if (c.dob) extra.push("Geburt: " + escapeHtml(c.dob));
+        if (c.elnr) extra.push("Telefon: " + escapeHtml(c.elnr));
+        if (c.address) extra.push("Adresse: " + escapeHtml(c.address));
+        if (c.email) extra.push("E-Mail: " + escapeHtml(c.email));
+        if (extra.length) html += "<br>" + extra.join(" · ");
+        if (c.notes) html += "<br>" + escapeHtml(c.notes);
+        html += "</li>";
+      });
+      html += "</ul>";
+    }
+
+    html += `<h2>Berichte</h2>`;
+    if (!selected.reports || !selected.reports.length) {
+      html += `<p>Keine Berichte erfasst.</p>`;
+    } else {
+      selected.reports
+        .slice()
+        .sort((a, b) => b.updated - a.updated)
+        .forEach(r => {
+          html += '<div class="block">';
+          html +=
+            "<h3>" +
+            escapeHtml(r.type || "") +
+            " – " +
+            escapeHtml(r.title || "(Ohne Titel)") +
+            "</h3>";
+          if (r.date) {
+            html +=
+              '<p class="meta">Berichtsdatum: ' +
+              escapeHtml(r.date) +
+              "</p>";
+          }
+          const text = escapeHtml(r.body || "").replace(/\n/g, "<br>");
+          html += "<p>" + text + "</p>";
+          html += "</div>";
+        });
+    }
+
+    html += `<h2>Kurzberichte</h2>`;
+    if (!selected.shorts || !selected.shorts.length) {
+      html += `<p>Keine Kurzberichte erfasst.</p>`;
+    } else {
+      html += "<ul>";
+      selected.shorts
+        .slice()
+        .sort((a, b) => new Date(b.dt) - new Date(a.dt))
+        .forEach(s => {
+          html +=
+            "<li><strong>" +
+            escapeHtml(new Date(s.dt).toLocaleString()) +
+            ":</strong> " +
+            escapeHtml(s.text || "") +
+            "</li>";
+        });
+      html += "</ul>";
+    }
+
+    html += `<p class="meta">
+      Hinweis: Dieses Dokument wurde automatisch aus dem ISM Cockpit erzeugt.
+      Um eine PDF-Datei zu erhalten, bitte im Browser den Druckdialog öffnen
+      und „Als PDF speichern“ wählen.
+    </p>`;
+
+    html += "</body></html>";
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+
+    setTimeout(() => {
+      win.focus();
+      try {
+        win.print();
+      } catch (_) {
+        /* Ignore */
+      }
+    }, 400);
+  } catch (err) {
+    console.error(err);
+    alert("Gesamtbericht konnte nicht geöffnet werden.");
+  }
+}
+
 /* ----- Tab: Kurzberichte (Fall) ----- */
+
 function renderTabShorts(selected, body) {
   const card = document.createElement("div");
   card.className = "card db-card";
+
   const form = document.createElement("div");
   form.className = "grid db-form-grid";
 
@@ -672,17 +945,17 @@ function renderTabShorts(selected, body) {
   saveBtn.addEventListener("click", () => {
     const txt = text.value.trim();
     if (!txt) return;
-    selected.shorts.push({ id: uid(), dt: when.value, text: txt });
+    selected.shorts.push({
+      id: uid(),
+      dt: when.value,
+      text: txt
+    });
     save(KEYS.cases, state.cases);
     text.value = "";
     render("/cases");
   });
 
-  form.append(
-    labelWrap("Datum/Zeit", when),
-    labelWrap("Text", text),
-    saveBtn
-  );
+  form.append(labelWrap("Datum/Zeit", when), labelWrap("Text", text), saveBtn);
 
   card.innerHTML = `<div class="db-section-title">Kurzbericht erfassen</div>`;
   card.appendChild(form);
@@ -695,23 +968,31 @@ function renderTabShorts(selected, body) {
   head.innerHTML = `<div>Datum/Zeit</div><div>Text</div><div>Aktionen</div>`;
   table.appendChild(head);
 
-  const list = selected.shorts.slice().sort((a, b) => new Date(b.dt) - new Date(a.dt));
+  const list = selected.shorts
+    .slice()
+    .sort((a, b) => new Date(b.dt) - new Date(a.dt));
+
   if (list.length === 0) {
     const row = document.createElement("div");
     row.className = "db-row";
-    row.innerHTML = `<div class="db-cell-empty" colspan="3">Noch keine Kurzberichte.</div>`;
+    row.innerHTML =
+      `<div class="db-cell-empty" colspan="3">Noch keine Kurzberichte.</div>`;
     table.appendChild(row);
   } else {
     list.forEach(s => {
       const row = document.createElement("div");
       row.className = "db-row";
+
       const actions = document.createElement("div");
       actions.className = "btn-row";
 
       const editBtn = document.createElement("button");
       editBtn.textContent = "Bearb.";
       editBtn.addEventListener("click", () => {
-        const nd = prompt("Datum/Zeit (YYYY-MM-DDTHH:MM):", s.dt);
+        const nd = prompt(
+          "Datum/Zeit (YYYY-MM-DDTHH:MM):",
+          s.dt || fmtDateTimeLocal(now())
+        );
         if (nd === null) return;
         const nt = prompt("Text bearbeiten:", s.text);
         if (nt === null) return;
@@ -739,6 +1020,7 @@ function renderTabShorts(selected, body) {
       const actCell = document.createElement("div");
       actCell.appendChild(actions);
       row.appendChild(actCell);
+
       table.appendChild(row);
     });
   }
@@ -746,10 +1028,12 @@ function renderTabShorts(selected, body) {
   body.appendChild(table);
 }
 
-/* ----- Tab: Kontakte ----- */
+/* ----- Tab: Kontakte (mit Telefonnummer) ----- */
+
 function renderTabContacts(selected, body) {
   const card = document.createElement("div");
   card.className = "card db-card";
+
   const form = document.createElement("div");
   form.className = "grid db-form-grid";
 
@@ -776,9 +1060,9 @@ function renderTabContacts(selected, body) {
   dobInput.type = "date";
   dobInput.className = "db-input";
 
-  const elInput = document.createElement("input");
-  elInput.className = "db-input";
-  elInput.placeholder = "EL-Nr.";
+  const phoneInput = document.createElement("input");
+  phoneInput.className = "db-input";
+  phoneInput.placeholder = "Telefonnummer";
 
   const addrInput = document.createElement("input");
   addrInput.className = "db-input";
@@ -806,7 +1090,7 @@ function renderTabContacts(selected, body) {
       role: roleSel.value,
       name,
       dob: dobInput.value,
-      elnr: elInput.value.trim(),
+      elnr: phoneInput.value.trim(), // intern weiter elnr, Label = Telefonnummer
       address: addrInput.value.trim(),
       email: mailInput.value.trim(),
       notes: notesInput.value.trim()
@@ -814,7 +1098,7 @@ function renderTabContacts(selected, body) {
     save(KEYS.cases, state.cases);
     nameInput.value = "";
     dobInput.value = "";
-    elInput.value = "";
+    phoneInput.value = "";
     addrInput.value = "";
     mailInput.value = "";
     notesInput.value = "";
@@ -825,7 +1109,7 @@ function renderTabContacts(selected, body) {
     labelWrap("Typ", roleSel),
     labelWrap("Name", nameInput),
     labelWrap("Geburtsdatum", dobInput),
-    labelWrap("EL-Nr.", elInput),
+    labelWrap("Telefonnummer", phoneInput),
     labelWrap("Adresse", addrInput),
     labelWrap("E-Mail", mailInput),
     labelWrap("Weitere Infos", notesInput),
@@ -840,40 +1124,47 @@ function renderTabContacts(selected, body) {
   table.className = "db-table";
   const head = document.createElement("div");
   head.className = "db-row db-row-head";
-  head.innerHTML = `<div>Typ</div><div>Name</div><div>Geburt</div><div>EL-Nr.</div><div>Aktionen</div>`;
+  head.innerHTML =
+    `<div>Typ</div><div>Name</div><div>Geburt</div><div>Telefonnummer</div><div>Aktionen</div>`;
   table.appendChild(head);
 
-  const list = (selected.contacts || []).slice().sort((a, b) => {
-    const r = a.role.localeCompare(b.role);
-    if (r !== 0) return r;
-    return (a.name || "").localeCompare(b.name || "");
-  });
+  const list = (selected.contacts || [])
+    .slice()
+    .sort((a, b) => {
+      const r = (a.role || "").localeCompare(b.role || "");
+      if (r !== 0) return r;
+      return (a.name || "").localeCompare(b.name || "");
+    });
 
   if (list.length === 0) {
     const row = document.createElement("div");
     row.className = "db-row";
-    row.innerHTML = `<div class="db-cell-empty" colspan="5">Noch keine Kontakte.</div>`;
+    row.innerHTML =
+      `<div class="db-cell-empty" colspan="5">Noch keine Kontakte.</div>`;
     table.appendChild(row);
   } else {
     list.forEach(c => {
       const row = document.createElement("div");
       row.className = "db-row";
+
       const actions = document.createElement("div");
       actions.className = "btn-row";
 
       const showBtn = document.createElement("button");
       showBtn.textContent = "Details";
       showBtn.addEventListener("click", () => {
-        alert([
-          `Typ: ${c.role}`,
-          `Name: ${c.name}`,
-          `Geburt: ${c.dob || "-"}`,
-          `EL-Nr.: ${c.elnr || "-"}`,
-          `Adresse: ${c.address || "-"}`,
-          `E-Mail: ${c.email || "-"}`,
-          "",
-          c.notes || ""
-        ].join("\n"));
+        alert(
+          [
+            `Typ: ${c.role}`,
+            `Name: ${c.name}`,
+            `Geburt: ${c.dob || "-"}`,
+            `Telefonnummer: ${c.elnr || "-"}`,
+            `Adresse: ${c.address || "-"}`,
+            `E-Mail: ${c.email || "-"}`,
+            "",
+            c.notes || ""
+          ].join("\n")
+        );
       });
 
       const delBtn = document.createElement("button");
@@ -896,6 +1187,7 @@ function renderTabContacts(selected, body) {
       const actCell = document.createElement("div");
       actCell.appendChild(actions);
       row.appendChild(actCell);
+
       table.appendChild(row);
     });
   }
@@ -903,7 +1195,8 @@ function renderTabContacts(selected, body) {
   body.appendChild(table);
 }
 
-/* ---------- Misc views ---------- */
+/* ---------- Misc Views ---------- */
+
 function renderHelp() {
   const view = $("#view");
   view.innerHTML = "";
@@ -915,6 +1208,7 @@ function renderHelp() {
   `;
   view.appendChild(card);
 }
+
 function renderMy() {
   const view = $("#view");
   view.innerHTML = "";
@@ -926,13 +1220,16 @@ function renderMy() {
   `;
   view.appendChild(card);
 }
+
 function renderSettings() {
   const view = $("#view");
   view.innerHTML = "";
   const card = document.createElement("div");
   card.className = "card db-card grid";
+
   const h2 = document.createElement("h2");
   h2.textContent = "⚙️ Einstellungen";
+
   const themeBtn = document.createElement("button");
   themeBtn.className = "db-btn-ghost";
   themeBtn.textContent = "Dark/Light umschalten";
@@ -957,7 +1254,8 @@ function renderSettings() {
   view.appendChild(card);
 }
 
-/* ---------- helpers ---------- */
+/* ---------- Helpers ---------- */
+
 function labelWrap(label, element) {
   const w = document.createElement("label");
   w.style.display = "grid";
@@ -969,6 +1267,7 @@ function labelWrap(label, element) {
 }
 
 /* ---------- Global UI wiring ---------- */
+
 function initGlobalUi() {
   const themeBtn = $("#themeToggle");
   if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
@@ -992,7 +1291,14 @@ function initGlobalUi() {
   const exportBtn = $("#exportAll");
   if (exportBtn) {
     exportBtn.addEventListener("click", () => {
-      const data = JSON.stringify({ exportedAt: new Date().toISOString(), cases: state.cases }, null, 2);
+      const data = JSON.stringify(
+        {
+          exportedAt: new Date().toISOString(),
+          cases: state.cases
+        },
+        null,
+        2
+      );
       const blob = new Blob([data], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -1048,22 +1354,25 @@ function initGlobalUi() {
 }
 
 /* ---------- Init ---------- */
+
 (function init() {
   initTheme();
   initGlobalUi();
 
   if (!state.cases.length) {
-    // Initial Demo-Fall
-    state.cases = [{
-      id: uid(),
-      title: "F010A017",
-      created: now(),
-      status: "open",
-      folders: [],
-      reports: [],
-      contacts: [],
-      shorts: []
-    }];
+    // Demo-Fall
+    state.cases = [
+      {
+        id: uid(),
+        title: "F010A017",
+        created: now(),
+        status: "open",
+        folders: [],
+        reports: [],
+        contacts: [],
+        shorts: []
+      }
+    ];
     save(KEYS.cases, state.cases);
   }
 
@@ -1072,70 +1381,369 @@ function initGlobalUi() {
   updateAgentBadge();
 })();
 
+/* ---------- Extra CSS: Police-DB Look, bessere Lesbarkeit ---------- */
 
-/* ---------- Extra CSS injection for police DB look ---------- */
 (function injectDbCss() {
   const css = `
   :root {
     --ism-orange: #ff7a00;
   }
-  .db-card{background:var(--card-bg, #111);border:1px solid rgba(255,255,255,.08);box-shadow:0 0 0 1px rgba(0,0,0,.6);}
-  .db-header{border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:.5rem;margin-bottom:.5rem;}
-  .db-title{font-size:1.3rem;font-weight:600;color:var(--ism-orange);letter-spacing:.08em;text-transform:uppercase;}
-  .db-subtitle{font-size:.85rem;opacity:.8;}
-  .db-body{display:grid;gap:.75rem;}
-  .db-footer{font-size:.75rem;opacity:.7;border-top:1px solid rgba(255,255,255,.1);padding-top:.4rem;}
-  .db-input{padding:.5rem .6rem;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:#050505;color:#f5f5f5;font-size:.95rem;}
-  .db-input:focus{outline:1px solid var(--ism-orange);border-color:var(--ism-orange);}
-  .db-checkbox{user-select:none;font-size:.9rem;display:inline-flex;gap:6px;align-items:center;opacity:.8;}
-  .db-primary{background:var(--ism-orange);border:none;color:#000;font-weight:600;}
-  .db-primary:hover{filter:brightness(1.05);}
-  .db-error{color:#ff6b6b;font-weight:600;font-size:.9rem;}
-  .db-kpi{font-size:2.2rem;font-weight:700;color:var(--ism-orange);margin:.2rem 0;}
-  .db-kpi-label{font-size:.9rem;opacity:.8;margin-bottom:.6rem;}
-  .db-table{display:grid;border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden;font-size:.9rem;}
-  .db-row{display:grid;grid-template-columns:1.1fr .9fr 2.2fr .9fr .9fr;align-items:stretch;}
-  .db-row-head{background:#181818;font-weight:600;border-bottom:1px solid rgba(255,255,255,.2);}
-  .db-row > div{padding:.35rem .5rem;border-bottom:1px solid rgba(255,255,255,.06);border-right:1px solid rgba(255,255,255,.04);}
-  .db-row > div:last-child{border-right:none;}
-  .db-row:nth-child(even):not(.db-row-head){background:#0b0b0b;}
-  .db-cell-text{white-space:nowrap;text-overflow:ellipsis;overflow:hidden;max-width:260px;}
-  .db-cell-empty{text-align:center;grid-column:1/-1;padding:.6rem .5rem;}
-  .db-case-list{margin-top:.75rem;}
-  .db-case-row{display:flex;justify-content:space-between;gap:.75rem;padding:.5rem .55rem;border-radius:8px;background:#050505;border:1px solid rgba(255,255,255,.06);margin-bottom:.35rem;}
-  .db-case-row:hover{border-color:var(--ism-orange);}
-  .db-case-main{display:grid;gap:.1rem;}
-  .db-case-title{font-weight:600;}
-  .db-case-meta{font-size:.75rem;opacity:.75;}
-  .db-case-actions{text-align:right;display:grid;gap:.35rem;align-items:center;justify-items:end;}
-  .db-status{padding:.1rem .5rem;border-radius:999px;font-size:.75rem;border:1px solid rgba(255,255,255,.3);}
-  .db-status-open{color:#ffd28a;border-color:#ffd28a33;}
-  .db-status-progress{color:#8fd1ff;border-color:#8fd1ff44;}
-  .db-status-closed{color:#b0ffb0;border-color:#b0ffb044;}
-  .db-columns{align-items:flex-start;}
-  .db-pane-left{max-width:360px;}
-  .db-pane-right{min-width:0;}
-  .db-case-head{display:grid;gap:.5rem;}
-  .db-case-head-main{display:grid;gap:.15rem;}
-  .db-case-head-title{font-size:1.2rem;font-weight:600;color:var(--ism-orange);}
-  .db-case-head-meta{font-size:.8rem;opacity:.75;}
-  .db-case-head-actions{display:flex;gap:.5rem;align-items:center;justify-content:flex-end;}
-  .db-select{padding-right:1.5rem;}
-  .tabbar{display:flex;gap:.35rem;margin-top:.4rem;border-top:1px solid rgba(255,255,255,.1);padding-top:.35rem;}
-  .tabbar button{padding:.3rem .7rem;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:#050505;font-size:.85rem;cursor:pointer;}
-  .tabbar button.active{background:var(--ism-orange);color:#000;border-color:var(--ism-orange);}
-  .tabcontent{display:grid;gap:.8rem;margin-top:.7rem;}
-  .db-section-title{font-weight:600;margin-bottom:.4rem;}
-  .db-section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem;}
-  .db-section-meta{font-size:.8rem;opacity:.7;}
-  .db-btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.3);padding:.3rem .6rem;border-radius:6px;font-size:.85rem;cursor:pointer;}
-  .db-btn-ghost:hover{border-color:var(--ism-orange);}
-  .db-form-grid{grid-template-columns:1fr;gap:.5rem;}
-  @media (max-width:900px){
-    .db-row{grid-template-columns:1.1fr .9fr 2fr;}
-    .db-row-head{grid-template-columns:1.1fr .9fr 2fr;}
+
+  body {
+    background: #05060a;
+    color: #f2f2f2;
+  }
+
+  .sidebar {
+    background: #05070a;
+    border-right: 1px solid #262626;
+  }
+
+  .sidebar nav a {
+    display: block;
+    margin-bottom: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #2a2d3c;
+    background: #101219;
+    color: #e5e5e5;
+    font-size: 0.92rem;
+  }
+
+  .sidebar nav a.active {
+    background: var(--ism-orange);
+    color: #000;
+    border-color: var(--ism-orange);
+  }
+
+  #globalSearch {
+    background: #101219;
+    color: #f5f5f5;
+    border-radius: 10px;
+    border: 1px solid #34384a;
+  }
+
+  .db-card {
+    background: #0c0e16;
+    border: 1px solid rgba(255,255,255,.10);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.6);
+    color: #f4f4f4;
+  }
+
+  .db-header {
+    border-bottom: 1px solid rgba(255,255,255,.12);
+    padding-bottom: .5rem;
+    margin-bottom: .5rem;
+  }
+
+  .db-title {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--ism-orange);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  .db-subtitle {
+    font-size: .85rem;
+    opacity: .8;
+  }
+
+  .db-body {
+    display: grid;
+    gap: .75rem;
+  }
+
+  .db-footer {
+    font-size: .75rem;
+    opacity: .7;
+    border-top: 1px solid rgba(255,255,255,.12);
+    padding-top: .4rem;
+  }
+
+  .db-input {
+    padding: .5rem .6rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,.30);
+    background: #050609;
+    color: #f5f5f5;
+    font-size: .95rem;
+  }
+
+  .db-input:focus {
+    outline: 1px solid var(--ism-orange);
+    border-color: var(--ism-orange);
+  }
+
+  .db-select {
+    padding-right: 1.5rem;
+  }
+
+  .db-checkbox {
+    user-select: none;
+    font-size: .9rem;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    opacity: .9;
+  }
+
+  .db-primary {
+    background: var(--ism-orange);
+    border: none;
+    color: #000;
+    font-weight: 600;
+  }
+
+  .db-primary:hover {
+    filter: brightness(1.05);
+  }
+
+  .db-error {
+    color: #ff6b6b;
+    font-weight: 600;
+    font-size: .9rem;
+  }
+
+  .db-kpi {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--ism-orange);
+    margin: .2rem 0;
+  }
+
+  .db-kpi-label {
+    font-size: .9rem;
+    opacity: .8;
+    margin-bottom: .6rem;
+  }
+
+  .db-table {
+    display: grid;
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: .9rem;
+  }
+
+  .db-row {
+    display: grid;
+    grid-template-columns: 1.1fr .9fr 2.2fr .9fr .9fr;
+    align-items: stretch;
+  }
+
+  .db-row-head {
+    background: #181b25;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255,255,255,.25);
+  }
+
+  .db-row > div {
+    padding: .35rem .5rem;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    border-right: 1px solid rgba(255,255,255,.04);
+  }
+
+  .db-row > div:last-child {
+    border-right: none;
+  }
+
+  .db-row:nth-child(even):not(.db-row-head) {
+    background: #10121c;
+  }
+
+  .db-cell-text {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    max-width: 260px;
+  }
+
+  .db-cell-empty {
+    text-align: center;
+    grid-column: 1 / -1;
+    padding: .6rem .5rem;
+  }
+
+  .db-case-list {
+    margin-top: .75rem;
+  }
+
+  .db-case-row {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .5rem .55rem;
+    border-radius: 8px;
+    background: #05070e;
+    border: 1px solid rgba(255,255,255,.10);
+    margin-bottom: .35rem;
+  }
+
+  .db-case-row:hover {
+    border-color: var(--ism-orange);
+  }
+
+  .db-case-main {
+    display: grid;
+    gap: .12rem;
+  }
+
+  .db-case-title {
+    font-weight: 600;
+  }
+
+  .db-case-meta {
+    font-size: .78rem;
+    opacity: .8;
+  }
+
+  .db-case-actions {
+    text-align: right;
+    display: grid;
+    gap: .35rem;
+    align-items: center;
+    justify-items: end;
+  }
+
+  .db-status {
+    padding: .1rem .5rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    border: 1px solid rgba(255,255,255,.3);
+  }
+
+  .db-status-open {
+    color: #ffd28a;
+    border-color: #ffd28a33;
+  }
+
+  .db-status-progress {
+    color: #8fd1ff;
+    border-color: #8fd1ff44;
+  }
+
+  .db-status-closed {
+    color: #b0ffb0;
+    border-color: #b0ffb044;
+  }
+
+  .db-columns {
+    align-items: flex-start;
+  }
+
+  .db-pane-left {
+    max-width: 360px;
+  }
+
+  .db-pane-right {
+    min-width: 0;
+  }
+
+  .db-case-head {
+    display: grid;
+    gap: .5rem;
+  }
+
+  .db-case-head-main {
+    display: grid;
+    gap: .15rem;
+  }
+
+  .db-case-head-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--ism-orange);
+  }
+
+  .db-case-head-meta {
+    font-size: .8rem;
+    opacity: .75;
+  }
+
+  .db-case-head-actions {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .tabbar {
+    display: flex;
+    gap: .35rem;
+    margin-top: .4rem;
+    border-top: 1px solid rgba(255,255,255,.12);
+    padding-top: .35rem;
+  }
+
+  .tabbar button {
+    padding: .3rem .7rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.25);
+    background: #05070e;
+    font-size: .85rem;
+    color: #e5e5e5;
+    cursor: pointer;
+  }
+
+  .tabbar button.active {
+    background: var(--ism-orange);
+    color: #000;
+    border-color: var(--ism-orange);
+  }
+
+  .tabcontent {
+    display: grid;
+    gap: .8rem;
+    margin-top: .7rem;
+  }
+
+  .db-section-title {
+    font-weight: 600;
+    margin-bottom: .4rem;
+  }
+
+  .db-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: .3rem;
+  }
+
+  .db-section-meta {
+    font-size: .8rem;
+    opacity: .7;
+  }
+
+  .db-btn-ghost {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,.45);
+    padding: .3rem .6rem;
+    border-radius: 6px;
+    font-size: .85rem;
+    color: #f0f0f0;
+    cursor: pointer;
+  }
+
+  .db-btn-ghost:hover {
+    border-color: var(--ism-orange);
+  }
+
+  .db-form-grid {
+    grid-template-columns: 1fr;
+    gap: .5rem;
+  }
+
+  @media (max-width: 900px) {
+    .db-row {
+      grid-template-columns: 1.1fr .9fr 2fr;
+    }
+    .db-row-head {
+      grid-template-columns: 1.1fr .9fr 2fr;
+    }
   }
   `;
+
   const s = document.createElement("style");
   s.textContent = css;
   document.head.appendChild(s);
