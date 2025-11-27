@@ -1,5 +1,5 @@
 /* ISM Cockpit – police DB style, PIN-Login, Cases/Contacts/Reports
-   Build: policeDB4
+   Build: policeDB5 – chronological reports, Files tab
 */
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -82,6 +82,13 @@ function escapeHtml(str = "") {
       "'": "&#39;"
     }[c];
   });
+}
+
+function safeDate(r) {
+  // Hilfsfunktion für Sorting (Berichte)
+  if (r.date) return new Date(r.date);
+  if (r.updated) return new Date(r.updated);
+  return new Date(0);
 }
 
 /* ---------- Theme ---------- */
@@ -168,7 +175,7 @@ function renderLogin() {
         ISM Internal Use Only · Unauthorized access prohibited
       </footer>
     </div>
-  `;
+ `;
 
   const pin = $("#pinInput");
   const showPin = $("#showPin");
@@ -261,7 +268,9 @@ function renderDashboard() {
   wrap.className = "grid k3";
 
   const totalShorts = state.cases.reduce(
-    (acc, c) => acc + (c.shorts ? c.shorts.length : 0),
+    (acc, c) =>
+      acc +
+      (c.reports || []).filter(r => r.type === "Kurzbericht").length,
     0
   );
 
@@ -281,7 +290,7 @@ function renderDashboard() {
   c2.innerHTML = `
     <h2>⚡ Kurzberichte</h2>
     <p class="db-kpi">${totalShorts}</p>
-    <p class="db-kpi-label">Einträge in allen Fällen</p>
+    <p class="db-kpi-label">Kurzberichte in allen Fällen</p>
   `;
 
   const c3 = document.createElement("div");
@@ -297,22 +306,26 @@ function renderDashboard() {
   wrap.append(c1, c2, c3);
   view.appendChild(wrap);
 
-  // Letzte Kurzberichte
+  // Kurzbericht-„Feed“ (neu aus Reports/Kurzbericht)
   const feedCard = document.createElement("div");
   feedCard.className = "card db-card";
-  feedCard.innerHTML = `<h3>Letzte Kurzberichte</h3>`;
+  feedCard.innerHTML = `<h3>Kurzberichte</h3>`;
   const table = document.createElement("div");
   table.className = "db-table";
   const header = document.createElement("div");
   header.className = "db-row db-row-head";
-  header.innerHTML = `<div>Fall</div><div>Datum/Zeit</div><div>Text</div>`;
+  header.innerHTML = `<div>Fall</div><div>Datum</div><div>Text</div>`;
   table.appendChild(header);
 
   const allShorts = [];
   state.cases.forEach(c => {
-    (c.shorts || []).forEach(s => allShorts.push({ caseTitle: c.title, s }));
+    (c.reports || []).forEach(r => {
+      if (r.type === "Kurzbericht") allShorts.push({ caseTitle: c.title, r });
+    });
   });
-  allShorts.sort((a, b) => new Date(b.s.dt) - new Date(a.s.dt));
+
+  // hier kannst du entscheiden: neueste zuerst oder chronologisch
+  allShorts.sort((a, b) => safeDate(a.r) - safeDate(b.r)); // frühestes Datum zuerst
 
   if (allShorts.length === 0) {
     const row = document.createElement("div");
@@ -321,13 +334,13 @@ function renderDashboard() {
       `<div class="db-cell-empty" colspan="3">Noch keine Kurzberichte vorhanden.</div>`;
     table.appendChild(row);
   } else {
-    allShorts.slice(0, 8).forEach(entry => {
+    allShorts.forEach(entry => {
       const row = document.createElement("div");
       row.className = "db-row";
       row.innerHTML = `
         <div>${escapeHtml(entry.caseTitle)}</div>
-        <div>${new Date(entry.s.dt).toLocaleString()}</div>
-        <div class="db-cell-text">${escapeHtml(entry.s.text)}</div>
+        <div>${escapeHtml(entry.r.date || "")}</div>
+        <div class="db-cell-text">${escapeHtml(entry.r.body || "")}</div>
       `;
       table.appendChild(row);
     });
@@ -380,7 +393,7 @@ function renderCases() {
       folders: [],
       reports: [],
       contacts: [],
-      shorts: []
+      shorts: [] // Historie, wird nicht mehr aktiv benutzt
     };
     state.cases.push(c);
     save(KEYS.cases, state.cases);
@@ -440,12 +453,16 @@ function renderCases() {
         ? "In Bearbeitung"
         : "Offen";
 
+    const shortCount = (c.reports || []).filter(
+      r => r.type === "Kurzbericht"
+    ).length;
+
     item.innerHTML = `
       <div class="db-case-main">
         <div class="db-case-title">${escapeHtml(c.title)}</div>
         <div class="db-case-meta">Angelegt: ${fmt(c.created)}</div>
         <div class="db-case-meta">
-          Kontakte: ${(c.contacts || []).length} · Kurzberichte: ${(c.shorts || []).length}
+          Kontakte: ${(c.contacts || []).length} · Kurzberichte: ${shortCount}
         </div>
       </div>
       <div class="db-case-actions">
@@ -518,15 +535,9 @@ function renderCases() {
       </div>
       <div class="db-case-head-actions">
         <select id="caseStatusSelect" class="db-input db-select">
-          <option value="open"${
-            selected.status === "open" ? " selected" : ""
-          }>Offen</option>
-          <option value="progress"${
-            selected.status === "progress" ? " selected" : ""
-          }>In Bearbeitung</option>
-          <option value="closed"${
-            selected.status === "closed" ? " selected" : ""
-          }>Abgeschlossen</option>
+          <option value="open"${selected.status === "open" ? " selected" : ""}>Offen</option>
+          <option value="progress"${selected.status === "progress" ? " selected" : ""}>In Bearbeitung</option>
+          <option value="closed"${selected.status === "closed" ? " selected" : ""}>Abgeschlossen</option>
         </select>
         <span class="db-status db-status-${selected.status ||
           "open"}" id="caseStatusBadge">${statusLabel}</span>
@@ -534,7 +545,7 @@ function renderCases() {
       <div class="tabbar">
         <button data-tab="files" class="active">📂 Akte</button>
         <button data-tab="reports">📄 Berichte</button>
-        <button data-tab="shorts">⚡ Kurzberichte</button>
+        <button data-tab="drive">📎 Dateien</button>
         <button data-tab="contacts">👥 Kontakte</button>
       </div>
     `;
@@ -551,7 +562,7 @@ function renderCases() {
       body.innerHTML = "";
       if (name === "files") renderTabFiles(selected, body);
       if (name === "reports") renderTabReports(selected, body);
-      if (name === "shorts") renderTabShorts(selected, body);
+      if (name === "drive") renderTabDrive(selected, body);
       if (name === "contacts") renderTabContacts(selected, body);
     }
 
@@ -585,7 +596,7 @@ function renderCases() {
   view.append(title, layout);
 }
 
-/* ----- Tab: Akte (Ordner / Platzhalter) ----- */
+/* ----- Tab: Akte (Unterordner) ----- */
 
 function renderTabFiles(selected, body) {
   const creator = document.createElement("div");
@@ -617,17 +628,17 @@ function renderTabFiles(selected, body) {
     card.innerHTML = `
       <div class="db-section-head">
         <div class="db-section-title">Ordner: ${escapeHtml(f.name)}</div>
-        <div class="db-section-meta">Platzhalter für Dateien (lokal).</div>
+        <div class="db-section-meta">Platzhalter für lokale Dateien.</div>
       </div>
       <p style="font-size:.85rem;opacity:.8;">
-        Später können hier echte Dateien (Bilder, TXT) verknüpft werden.
+        Später können hier echte Dateien (Bilder, TXT usw.) verknüpft werden.
       </p>
     `;
     body.appendChild(card);
   });
 }
 
-/* ----- Tab: Berichte + Gesamtbericht-PDF ----- */
+/* ----- Tab: Berichte + Gesamtbericht-PDF (chronologisch) ----- */
 
 function renderTabReports(selected, body) {
   const card = document.createElement("div");
@@ -712,7 +723,9 @@ function renderTabReports(selected, body) {
     `<div>Typ</div><div>Datum</div><div>Titel</div><div>Zuletzt</div><div>Aktionen</div>`;
   table.appendChild(head);
 
-  const docs = selected.reports.slice().sort((a, b) => b.updated - a.updated);
+  const docs = (selected.reports || [])
+    .slice()
+    .sort((a, b) => safeDate(a) - safeDate(b)); // chronologisch: frühestes Datum zuerst
 
   if (docs.length === 0) {
     const row = document.createElement("div");
@@ -763,7 +776,7 @@ function renderTabReports(selected, body) {
 
       row.innerHTML = `
         <div>${escapeHtml(d.type)}</div>
-        <div>${escapeHtml(d.date)}</div>
+        <div>${escapeHtml(d.date || "")}</div>
         <div>${escapeHtml(d.title || "(Ohne Titel)")}</div>
         <div>${fmt(d.updated)}</div>
       `;
@@ -778,19 +791,24 @@ function renderTabReports(selected, body) {
   body.appendChild(table);
 }
 
-/* Gesamtberichte als „PDF“ (über Druckdialog) */
+/* Gesamtberichte als „PDF“ (Browser-Druckdialog) */
 
 function exportCasePdf(selected) {
   try {
     const win = window.open("", "_blank");
     if (!win) {
       alert(
-        "Popup blockiert. Bitte Popups/Pop-ups für diese Seite im Browser erlauben."
+        "Popup blockiert. Bitte Popups für diese Seite im Browser erlauben."
       );
       return;
     }
 
     const title = escapeHtml(selected.title || "");
+    const allReports = (selected.reports || [])
+      .slice()
+      .sort((a, b) => safeDate(a) - safeDate(b)); // chronologisch
+
+    const shortReports = allReports.filter(r => r.type === "Kurzbericht");
 
     let html = `
       <!doctype html>
@@ -847,49 +865,41 @@ function exportCasePdf(selected) {
       html += "</ul>";
     }
 
-    html += `<h2>Berichte</h2>`;
-    if (!selected.reports || !selected.reports.length) {
+    html += `<h2>Berichte (chronologisch)</h2>`;
+    if (!allReports.length) {
       html += `<p>Keine Berichte erfasst.</p>`;
     } else {
-      selected.reports
-        .slice()
-        .sort((a, b) => b.updated - a.updated)
-        .forEach(r => {
-          html += '<div class="block">';
+      allReports.forEach(r => {
+        html += '<div class="block">';
+        html +=
+          "<h3>" +
+          escapeHtml(r.type || "") +
+          " – " +
+          escapeHtml(r.title || "(Ohne Titel)") +
+          "</h3>";
+        if (r.date) {
           html +=
-            "<h3>" +
-            escapeHtml(r.type || "") +
-            " – " +
-            escapeHtml(r.title || "(Ohne Titel)") +
-            "</h3>";
-          if (r.date) {
-            html +=
-              '<p class="meta">Berichtsdatum: ' +
-              escapeHtml(r.date) +
-              "</p>";
-          }
-          const text = escapeHtml(r.body || "").replace(/\n/g, "<br>");
-          html += "<p>" + text + "</p>";
-          html += "</div>";
-        });
+            '<p class="meta">Berichtsdatum: ' + escapeHtml(r.date) + "</p>";
+        }
+        const text = escapeHtml(r.body || "").replace(/\n/g, "<br>");
+        html += "<p>" + text + "</p>";
+        html += "</div>";
+      });
     }
 
-    html += `<h2>Kurzberichte</h2>`;
-    if (!selected.shorts || !selected.shorts.length) {
+    html += `<h2>Kurzberichte (aus Berichten)</h2>`;
+    if (!shortReports.length) {
       html += `<p>Keine Kurzberichte erfasst.</p>`;
     } else {
       html += "<ul>";
-      selected.shorts
-        .slice()
-        .sort((a, b) => new Date(b.dt) - new Date(a.dt))
-        .forEach(s => {
-          html +=
-            "<li><strong>" +
-            escapeHtml(new Date(s.dt).toLocaleString()) +
-            ":</strong> " +
-            escapeHtml(s.text || "") +
-            "</li>";
-        });
+      shortReports.forEach(r => {
+        html +=
+          "<li><strong>" +
+          escapeHtml(r.date || "") +
+          ":</strong> " +
+          escapeHtml(r.body || "") +
+          "</li>";
+      });
       html += "</ul>";
     }
 
@@ -910,7 +920,7 @@ function exportCasePdf(selected) {
       try {
         win.print();
       } catch (_) {
-        /* Ignore */
+        /* ignore */
       }
     }, 400);
   } catch (err) {
@@ -919,113 +929,40 @@ function exportCasePdf(selected) {
   }
 }
 
-/* ----- Tab: Kurzberichte (Fall) ----- */
+/* ----- Tab: Dateien (Google-Drive-Platzhalter) ----- */
 
-function renderTabShorts(selected, body) {
+function renderTabDrive(selected, body) {
   const card = document.createElement("div");
   card.className = "card db-card";
+  card.innerHTML = `
+    <div class="db-section-head">
+      <div class="db-section-title">Dateien (Google Drive)</div>
+      <div class="db-section-meta">
+        Platzhalter für eine spätere Integration von Google Drive.
+      </div>
+    </div>
+    <p style="font-size:.9rem;opacity:.85;">
+      Hier könnte später eine Verbindung zu Google Drive aufgebaut werden,
+      um fallbezogene Dateien anzuzeigen. Für ein echtes Login wäre ein
+      eigener Server mit Google-OAuth notwendig.
+    </p>
+  `;
 
-  const form = document.createElement("div");
-  form.className = "grid db-form-grid";
-
-  const when = document.createElement("input");
-  when.type = "datetime-local";
-  when.className = "db-input";
-  when.value = fmtDateTimeLocal(now());
-
-  const text = document.createElement("textarea");
-  text.className = "db-input";
-  text.rows = 3;
-  text.placeholder = "Kurzbericht (max. einige Sätze) …";
-
-  const saveBtn = document.createElement("button");
-  saveBtn.className = "primary db-primary";
-  saveBtn.textContent = "+ Kurzbericht speichern";
-
-  saveBtn.addEventListener("click", () => {
-    const txt = text.value.trim();
-    if (!txt) return;
-    selected.shorts.push({
-      id: uid(),
-      dt: when.value,
-      text: txt
-    });
-    save(KEYS.cases, state.cases);
-    text.value = "";
-    render("/cases");
+  const btnRow = document.createElement("div");
+  btnRow.className = "btn-row";
+  const fakeBtn = document.createElement("button");
+  fakeBtn.className = "db-btn-ghost";
+  fakeBtn.textContent = "Mit Google Drive verbinden (nicht aktiv)";
+  fakeBtn.addEventListener("click", () => {
+    alert(
+      "Dies ist aktuell nur ein Platzhalter.\n\nFür eine echte Google-Drive-Verbindung bräuchte es ein Backend mit OAuth."
+    );
   });
 
-  form.append(labelWrap("Datum/Zeit", when), labelWrap("Text", text), saveBtn);
+  btnRow.appendChild(fakeBtn);
+  card.appendChild(btnRow);
 
-  card.innerHTML = `<div class="db-section-title">Kurzbericht erfassen</div>`;
-  card.appendChild(form);
   body.appendChild(card);
-
-  const table = document.createElement("div");
-  table.className = "db-table";
-  const head = document.createElement("div");
-  head.className = "db-row db-row-head";
-  head.innerHTML = `<div>Datum/Zeit</div><div>Text</div><div>Aktionen</div>`;
-  table.appendChild(head);
-
-  const list = selected.shorts
-    .slice()
-    .sort((a, b) => new Date(b.dt) - new Date(a.dt));
-
-  if (list.length === 0) {
-    const row = document.createElement("div");
-    row.className = "db-row";
-    row.innerHTML =
-      `<div class="db-cell-empty" colspan="3">Noch keine Kurzberichte.</div>`;
-    table.appendChild(row);
-  } else {
-    list.forEach(s => {
-      const row = document.createElement("div");
-      row.className = "db-row";
-
-      const actions = document.createElement("div");
-      actions.className = "btn-row";
-
-      const editBtn = document.createElement("button");
-      editBtn.textContent = "Bearb.";
-      editBtn.addEventListener("click", () => {
-        const nd = prompt(
-          "Datum/Zeit (YYYY-MM-DDTHH:MM):",
-          s.dt || fmtDateTimeLocal(now())
-        );
-        if (nd === null) return;
-        const nt = prompt("Text bearbeiten:", s.text);
-        if (nt === null) return;
-        s.dt = nd;
-        s.text = nt.trim();
-        save(KEYS.cases, state.cases);
-        render("/cases");
-      });
-
-      const delBtn = document.createElement("button");
-      delBtn.textContent = "Löschen";
-      delBtn.addEventListener("click", () => {
-        if (!confirm("Kurzbericht löschen?")) return;
-        selected.shorts = selected.shorts.filter(x => x.id !== s.id);
-        save(KEYS.cases, state.cases);
-        render("/cases");
-      });
-
-      actions.append(editBtn, delBtn);
-
-      row.innerHTML = `
-        <div>${new Date(s.dt).toLocaleString()}</div>
-        <div class="db-cell-text">${escapeHtml(s.text)}</div>
-      `;
-      const actCell = document.createElement("div");
-      actCell.appendChild(actions);
-      row.appendChild(actCell);
-
-      table.appendChild(row);
-    });
-  }
-
-  body.appendChild(table);
 }
 
 /* ----- Tab: Kontakte (mit Telefonnummer) ----- */
@@ -1090,7 +1027,7 @@ function renderTabContacts(selected, body) {
       role: roleSel.value,
       name,
       dob: dobInput.value,
-      elnr: phoneInput.value.trim(), // intern weiter elnr, Label = Telefonnummer
+      elnr: phoneInput.value.trim(), // intern: elnr, Anzeige: Telefonnummer
       address: addrInput.value.trim(),
       email: mailInput.value.trim(),
       notes: notesInput.value.trim()
