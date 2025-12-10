@@ -1,5 +1,5 @@
 /* ISM Cockpit – police DB style, PIN-Login, Cases/Contacts/Reports
-   Build: policeDB6 – Kontakte mit Polizei-Feldern, Personenbericht-PDF
+   Build: policeDB6a – Kontakte mit Polizei-Feldern, Personenbericht-PDF
 */
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -1666,7 +1666,7 @@ function renderTabContacts(selected, body) {
 
   const nationalityInput = document.createElement("input");
   nationalityInput.className = "db-input";
-  nationalityInput.placeholder = "z.B. Schweiz / Kosovo";
+  nationalityInput.placeholder = "z.B. Schweiz";
 
   const phoneInput = document.createElement("input");
   phoneInput.className = "db-input";
