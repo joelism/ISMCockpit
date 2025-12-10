@@ -1,5 +1,5 @@
 /* ISM Cockpit – police DB style, PIN-Login, Cases/Contacts/Reports
-   Build: policeDB6a – Kontakte mit Polizei-Feldern, Personenbericht-PDF
+   Build: policeDB7 – Personen-Weltdatenbank + Polizei-Felder
 */
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -10,6 +10,7 @@ const ISM = { org: "ISM Switzerland" };
 const KEYS = {
   session: "ismc-session",
   cases: "ismc-cases-v4",
+  persons: "ismc-persons-v1",
   seq: "ismc-case-seq",
   theme: "ismc-theme",
   route: "ismc-route"
@@ -18,7 +19,9 @@ const KEYS = {
 const state = {
   session: load(KEYS.session),
   cases: load(KEYS.cases) || [],
-  search: ""
+  persons: load(KEYS.persons) || [],
+  search: "",
+  personSearch: ""
 };
 
 /* ---------- Utils ---------- */
@@ -87,6 +90,7 @@ function escapeHtml(str = "") {
 function safeDate(r) {
   if (r.date) return new Date(r.date);
   if (r.updated) return new Date(r.updated);
+  if (r.created) return new Date(r.created);
   return new Date(0);
 }
 
@@ -238,6 +242,34 @@ function nextCaseNumber() {
   return `F${triple}${agent}`;
 }
 
+/* ---------- Personen-Weltdatenbank Helper ---------- */
+
+function addPersonFromCase(caseObj, contact) {
+  if (!contact || !contact.name) return;
+  const record = {
+    id: uid(),
+    name: contact.name,
+    dob: contact.dob,
+    gender: contact.gender,
+    heightCm: contact.heightCm,
+    nationality: contact.nationality,
+    elnr: contact.elnr,
+    address: contact.address,
+    email: contact.email,
+    hairColor: contact.hairColor,
+    eyeColor: contact.eyeColor,
+    build: contact.build,
+    idDoc: contact.idDoc,
+    photoUrl: contact.photoUrl,
+    notes: contact.notes,
+    sourceCaseId: caseObj ? caseObj.id : null,
+    sourceCaseTitle: caseObj ? caseObj.title : null,
+    created: now()
+  };
+  state.persons.push(record);
+  save(KEYS.persons, state.persons);
+}
+
 /* ---------- Main render ---------- */
 
 function render(route) {
@@ -249,6 +281,7 @@ function render(route) {
 
   if (route === "/" || route === "") return renderDashboard();
   if (route === "/cases") return renderCases();
+  if (route === "/directory") return renderDirectory();
   if (route === "/help") return renderHelp();
   if (route === "/my") return renderMy();
   if (route === "/settings") return renderSettings();
@@ -295,10 +328,11 @@ function renderDashboard() {
   const c3 = document.createElement("div");
   c3.className = "card db-card";
   c3.innerHTML = `
-    <h2>🪪 My ISM</h2>
-    <p>Ihr Ausweis erscheint in Kürze hier.</p>
+    <h2>🌐 Personen</h2>
+    <p class="db-kpi">${state.persons.length}</p>
+    <p class="db-kpi-label">Einträge in der ISM-Personendatenbank</p>
     <div class="btn-row">
-      <a class="btn" href="#/my">My ISM öffnen</a>
+      <a class="btn" href="#/directory">Personen-DB öffnen</a>
     </div>
   `;
 
@@ -634,7 +668,7 @@ function renderTabFiles(selected, body) {
   });
 }
 
-/* ----- Tab: Berichte + Gesamtbericht-PDF (chronologisch) ----- */
+/* ----- Tab: Berichte + Gesamtbericht-PDF ----- */
 
 function renderTabReports(selected, body) {
   const card = document.createElement("div");
@@ -926,7 +960,7 @@ function exportCasePdf(selected) {
   }
 }
 
-/* ----- Personenbericht-PDF pro Kontakt (Polizei-Stil) ----- */
+/* ----- Personenbericht-PDF (Case + Directory) ----- */
 
 function exportContactPdf(caseObj, contact) {
   try {
@@ -938,7 +972,9 @@ function exportContactPdf(caseObj, contact) {
       return;
     }
 
-    const caseTitle   = escapeHtml(caseObj.title || "");
+    const caseTitle = escapeHtml(
+      caseObj && caseObj.title ? caseObj.title : "ISM-Global"
+    );
     const name        = escapeHtml(contact.name || "");
     const role        = escapeHtml(contact.role || "");
     const dob         = escapeHtml(contact.dob || "–");
@@ -1089,7 +1125,7 @@ function exportContactPdf(caseObj, contact) {
 
         <h1>Personenbericht ${name}</h1>
         <div class="meta">
-          Aktenzeichen: ${caseTitle} · Generiert: ${escapeHtml(
+          Aktenzeichen / Referenz: ${caseTitle} · Generiert: ${escapeHtml(
             new Date().toLocaleString()
           )}
         </div>
@@ -1194,7 +1230,7 @@ function exportContactPdf(caseObj, contact) {
   }
 }
 
-/* ----- Tab: Dateien (Google Drive – echte Anbindung) ----- */
+/* ----- Tab: Dateien (Google Drive) ----- */
 
 const GD = {
   API_KEY: "AIzaSyCtd628byDsaRHu7mE_vj_gDedvTuUybFE",
@@ -1613,7 +1649,7 @@ function renderTabDrive(selected, body) {
   })();
 }
 
-/* ----- Tab: Kontakte (mit Polizei-Feldern) ----- */
+/* ----- Tab: Kontakte (im Fall, mit Polizei-Feldern) ----- */
 
 function renderTabContacts(selected, body) {
   const card = document.createElement("div");
@@ -1713,7 +1749,7 @@ function renderTabContacts(selected, body) {
   saveBtn.addEventListener("click", () => {
     const name = nameInput.value.trim();
     if (!name) return;
-    selected.contacts.push({
+    const contact = {
       id: uid(),
       role:        roleSel.value,
       name,
@@ -1730,8 +1766,10 @@ function renderTabContacts(selected, body) {
       idDoc:       idDocInput.value.trim(),
       photoUrl:    photoInput.value.trim(),
       notes:       notesInput.value.trim()
-    });
+    };
+    selected.contacts.push(contact);
     save(KEYS.cases, state.cases);
+    addPersonFromCase(selected, contact);   // -> in weltweite DB übernehmen
 
     nameInput.value = "";
     dobInput.value = "";
@@ -1841,6 +1879,7 @@ function renderTabContacts(selected, body) {
         if (!confirm("Kontakt löschen?")) return;
         selected.contacts = selected.contacts.filter(x => x.id !== c.id);
         save(KEYS.cases, state.cases);
+        // aus weltweiter DB entfernen wir bewusst NICHT -> historische Spur
         render("/cases");
       });
 
@@ -1861,6 +1900,246 @@ function renderTabContacts(selected, body) {
   }
 
   body.appendChild(table);
+}
+
+/* ---------- Weltweite Personen-DB (nicht im Fall) ---------- */
+
+function renderDirectory() {
+  const view = $("#view");
+  view.innerHTML = "";
+
+  const title = document.createElement("h2");
+  title.textContent = "🌐 ISM Personen-Datenbank (weltweit)";
+
+  const layout = document.createElement("div");
+  layout.className = "columns db-columns";
+
+  const left = document.createElement("div");
+  left.className = "pane db-pane-left";
+  const right = document.createElement("div");
+  right.className = "pane db-pane-right";
+
+  // Neu anlegen (global, ohne Fall-Pflicht)
+  const createCard = document.createElement("div");
+  createCard.className = "card db-card grid";
+  const createTitle = document.createElement("div");
+  createTitle.className = "db-section-title";
+  createTitle.textContent = "Neue Person erfassen";
+
+  const form = document.createElement("div");
+  form.className = "grid db-form-grid";
+
+  const pName = document.createElement("input");
+  pName.className = "db-input";
+  pName.placeholder = "Name";
+
+  const pDob = document.createElement("input");
+  pDob.type = "date";
+  pDob.className = "db-input";
+
+  const pNationality = document.createElement("input");
+  pNationality.className = "db-input";
+  pNationality.placeholder = "Nationalität (z.B. Schweiz)";
+
+  const pPhone = document.createElement("input");
+  pPhone.className = "db-input";
+  pPhone.placeholder = "Telefonnummer";
+
+  const pEmail = document.createElement("input");
+  pEmail.type = "email";
+  pEmail.className = "db-input";
+  pEmail.placeholder = "E-Mail";
+
+  const pNotes = document.createElement("textarea");
+  pNotes.className = "db-input";
+  pNotes.rows = 2;
+  pNotes.placeholder = "Hinweise / Bemerkungen (optional)";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "primary db-primary";
+  saveBtn.textContent = "Person in DB speichern";
+
+  saveBtn.addEventListener("click", () => {
+    const name = pName.value.trim();
+    if (!name) return;
+    const record = {
+      id: uid(),
+      name,
+      dob: pDob.value,
+      gender: "unbekannt",
+      heightCm: "",
+      nationality: pNationality.value.trim(),
+      elnr: pPhone.value.trim(),
+      address: "",
+      email: pEmail.value.trim(),
+      hairColor: "",
+      eyeColor: "",
+      build: "",
+      idDoc: "",
+      photoUrl: "",
+      notes: pNotes.value.trim(),
+      sourceCaseId: null,
+      sourceCaseTitle: null,
+      created: now()
+    };
+    state.persons.push(record);
+    save(KEYS.persons, state.persons);
+
+    pName.value = "";
+    pDob.value = "";
+    pNationality.value = "";
+    pPhone.value = "";
+    pEmail.value = "";
+    pNotes.value = "";
+
+    render("/directory");
+  });
+
+  form.append(
+    labelWrap("Name", pName),
+    labelWrap("Geburtsdatum", pDob),
+    labelWrap("Nationalität", pNationality),
+    labelWrap("Telefonnummer", pPhone),
+    labelWrap("E-Mail", pEmail),
+    labelWrap("Hinweise", pNotes),
+    saveBtn
+  );
+
+  createCard.append(createTitle, form);
+  left.appendChild(createCard);
+
+  // Suche + Liste
+  const searchCard = document.createElement("div");
+  searchCard.className = "card db-card";
+  const searchLabel = document.createElement("div");
+  searchLabel.className = "db-section-title";
+  searchLabel.textContent = "Personen suchen";
+  const searchInput = document.createElement("input");
+  searchInput.className = "db-input";
+  searchInput.placeholder =
+    "Suche nach Name, Telefonnummer, Nationalität, Fallnummer …";
+  searchInput.value = state.personSearch;
+  searchInput.addEventListener("input", e => {
+    state.personSearch = e.target.value;
+    render("/directory");
+  });
+  searchCard.append(searchLabel, searchInput);
+  right.appendChild(searchCard);
+
+  const listCard = document.createElement("div");
+  listCard.className = "card db-card";
+  const listTitle = document.createElement("div");
+  listTitle.className = "db-section-title";
+  listTitle.textContent = "Trefferliste";
+
+  const table = document.createElement("div");
+  table.className = "db-table";
+  const head = document.createElement("div");
+  head.className = "db-row db-row-head";
+  head.innerHTML =
+    `<div>Name</div><div>Geburt</div><div>Nationalität</div><div>Fall / Quelle</div><div>Aktionen</div>`;
+  table.appendChild(head);
+
+  const q = (state.personSearch || "").trim().toLowerCase();
+  const filtered = state.persons
+    .slice()
+    .sort((a, b) => {
+      const n = (a.name || "").localeCompare(b.name || "");
+      if (n !== 0) return n;
+      return safeDate(a) - safeDate(b);
+    })
+    .filter(p => {
+      if (!q) return true;
+      const hay = [
+        p.name,
+        p.nationality,
+        p.elnr,
+        p.email,
+        p.sourceCaseTitle
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+
+  if (!filtered.length) {
+    const row = document.createElement("div");
+    row.className = "db-row";
+    row.innerHTML =
+      `<div class="db-cell-empty" colspan="5">Keine Personen gefunden.</div>`;
+    table.appendChild(row);
+  } else {
+    filtered.forEach(p => {
+      const row = document.createElement("div");
+      row.className = "db-row";
+
+      const actions = document.createElement("div");
+      actions.className = "btn-row";
+
+      const showBtn = document.createElement("button");
+      showBtn.textContent = "Details";
+      showBtn.addEventListener("click", () => {
+        alert(
+          [
+            `Name: ${p.name}`,
+            `Geburt: ${p.dob || "-"}`,
+            `Nationalität: ${p.nationality || "-"}`,
+            `Telefon: ${p.elnr || "-"}`,
+            `E-Mail: ${p.email || "-"}`,
+            `Quelle: ${p.sourceCaseTitle || "Direkt in Personen-DB"}`,
+            "",
+            p.notes || ""
+          ].join("\n")
+        );
+      });
+
+      const reportBtn = document.createElement("button");
+      reportBtn.textContent = "Personenbericht";
+      reportBtn.addEventListener("click", () => {
+        const caseObj = p.sourceCaseId
+          ? state.cases.find(c => c.id === p.sourceCaseId) || {
+              id: null,
+              title: p.sourceCaseTitle || "ISM-Global"
+            }
+          : { id: null, title: "ISM-Global" };
+        exportContactPdf(caseObj, p);
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "Löschen";
+      delBtn.addEventListener("click", () => {
+        if (!confirm("Person aus der weltweiten DB löschen?")) return;
+        state.persons = state.persons.filter(x => x.id !== p.id);
+        save(KEYS.persons, state.persons);
+        render("/directory");
+      });
+
+      actions.append(showBtn, reportBtn, delBtn);
+
+      const src =
+        p.sourceCaseTitle && p.sourceCaseTitle.length
+          ? p.sourceCaseTitle
+          : "ISM-DB (kein Fall)";
+
+      row.innerHTML = `
+        <div>${escapeHtml(p.name)}</div>
+        <div>${escapeHtml(p.dob || "–")}</div>
+        <div>${escapeHtml(p.nationality || "–")}</div>
+        <div>${escapeHtml(src)}</div>
+      `;
+      const actCell = document.createElement("div");
+      actCell.appendChild(actions);
+      row.appendChild(actCell);
+
+      table.appendChild(row);
+    });
+  }
+
+  listCard.append(listTitle, table);
+  right.appendChild(listCard);
+
+  layout.append(left, right);
+  view.append(title, layout);
 }
 
 /* ---------- Misc Views ---------- */
@@ -1909,7 +2188,9 @@ function renderSettings() {
   clearBtn.addEventListener("click", () => {
     if (!confirm("Wirklich alle lokalen Cockpit-Daten löschen?")) return;
     state.cases = [];
+    state.persons = [];
     save(KEYS.cases, state.cases);
+    save(KEYS.persons, state.persons);
     render("/");
   });
 
@@ -1962,7 +2243,8 @@ function initGlobalUi() {
       const data = JSON.stringify(
         {
           exportedAt: new Date().toISOString(),
-          cases: state.cases
+          cases: state.cases,
+          persons: state.persons
         },
         null,
         2
@@ -1971,7 +2253,7 @@ function initGlobalUi() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "ism-cases-backup.json";
+      a.download = "ism-backup.json";
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -1988,12 +2270,14 @@ function initGlobalUi() {
       reader.onload = () => {
         try {
           const parsed = JSON.parse(reader.result);
-          if (!parsed || !Array.isArray(parsed.cases)) {
+          if (!parsed || (!Array.isArray(parsed.cases) && !Array.isArray(parsed.persons))) {
             alert("Ungültiges Backup.");
             return;
           }
-          state.cases = parsed.cases;
+          if (Array.isArray(parsed.cases)) state.cases = parsed.cases;
+          if (Array.isArray(parsed.persons)) state.persons = parsed.persons;
           save(KEYS.cases, state.cases);
+          save(KEYS.persons, state.persons);
           render("/cases");
         } catch {
           alert("Konnte die Datei nicht lesen.");
@@ -2041,6 +2325,15 @@ function initGlobalUi() {
       }
     ];
     save(KEYS.cases, state.cases);
+  }
+
+  // Erstinitialisierung: vorhandene Kontakte einmalig in Personen-DB ziehen
+  if (!state.persons.length) {
+    state.cases.forEach(c => {
+      (c.contacts || []).forEach(contact => {
+        addPersonFromCase(c, contact);
+      });
+    });
   }
 
   window.addEventListener("hashchange", syncRoute);
