@@ -927,6 +927,239 @@ function exportCasePdf(selected) {
   }
 }
 
+/* ----- NEU: Personenbericht-PDF pro Kontakt ----- */
+
+function exportContactPdf(caseObj, contact) {
+  try {
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert(
+        "Popup blockiert. Bitte Popups für diese Seite im Browser erlauben."
+      );
+      return;
+    }
+
+    const caseTitle = escapeHtml(caseObj.title || "");
+    const name = escapeHtml(contact.name || "");
+    const role = escapeHtml(contact.role || "");
+    const dob = escapeHtml(contact.dob || "–");
+    const phone = escapeHtml(contact.elnr || "–");
+    const address = escapeHtml(contact.address || "–");
+    const email = escapeHtml(contact.email || "–");
+    const notes = escapeHtml(contact.notes || "").replace(/\n/g, "<br>");
+    const photoUrl = contact.photoUrl ? escapeHtml(contact.photoUrl) : "";
+
+    let html = `
+      <!doctype html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Personenbericht ${name}</title>
+        <style>
+          :root {
+            --ism-orange: #ff7a00;
+          }
+          body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            padding: 24px;
+            background: #ffffff;
+            color: #000000;
+            line-height: 1.4;
+          }
+          .header {
+            border-bottom: 2px solid #000;
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+          }
+          .header-left {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+          }
+          .header-left strong {
+            font-size: 16px;
+            color: #000;
+          }
+          .header-tag {
+            font-size: 10px;
+            padding: 3px 7px;
+            border-radius: 999px;
+            border: 1px solid #000;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+          }
+          .header-strip {
+            height: 4px;
+            background: linear-gradient(90deg,var(--ism-orange),#000);
+            margin-top: 6px;
+          }
+          h1 {
+            font-size: 20px;
+            margin: 0 0 2px 0;
+          }
+          .meta {
+            font-size: 11px;
+            color: #444;
+            margin-bottom: 16px;
+          }
+          .idcard {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+            border: 1px solid #000;
+            padding: 12px;
+            margin-bottom: 18px;
+          }
+          .idcard-left {
+            font-size: 12px;
+          }
+          .id-row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 4px;
+            margin-bottom: 4px;
+          }
+          .id-label {
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: .08em;
+            color: #555;
+          }
+          .id-value {
+            font-size: 12px;
+          }
+          .photo-box {
+            width: 120px;
+            height: 150px;
+            border: 1px solid #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: #777;
+            overflow: hidden;
+          }
+          .photo-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+          .section-title {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            margin: 14px 0 6px 0;
+          }
+          .notes-box {
+            border: 1px solid #000;
+            min-height: 80px;
+            font-size: 12px;
+            padding: 8px;
+          }
+          .footer-note {
+            margin-top: 18px;
+            font-size: 10px;
+            color: #555;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-left">
+            <div><strong>ISM Switzerland</strong></div>
+            <div>INTERNE SACHBEARBEITUNG</div>
+            <div>Personenbericht</div>
+          </div>
+          <div class="header-right">
+            <div class="header-tag">Case File</div>
+          </div>
+        </div>
+        <div class="header-strip"></div>
+
+        <h1>Personenbericht ${name}</h1>
+        <div class="meta">
+          Aktenzeichen: ${caseTitle} · Generiert: ${escapeHtml(
+            new Date().toLocaleString()
+          )}
+        </div>
+
+        <div class="idcard">
+          <div class="idcard-left">
+            <div class="id-row">
+              <div class="id-label">Name</div>
+              <div class="id-value">${name}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Rolle im Fall</div>
+              <div class="id-value">${role || "–"}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Geburtsdatum</div>
+              <div class="id-value">${dob}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Telefon</div>
+              <div class="id-value">${phone}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Adresse</div>
+              <div class="id-value">${address}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">E-Mail</div>
+              <div class="id-value">${email}</div>
+            </div>
+          </div>
+          <div class="idcard-right">
+            <div class="photo-box">
+    `;
+
+    if (photoUrl) {
+      html += `<img src="${photoUrl}" alt="Foto ${name}">`;
+    } else {
+      html += `kein Foto hinterlegt`;
+    }
+
+    html += `
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">Zusatzinformationen</div>
+        <div class="notes-box">
+          ${notes || "<span style='color:#888;'>Keine zusätzlichen Angaben erfasst.</span>"}
+        </div>
+
+        <div class="footer-note">
+          Dieses Dokument wurde automatisch aus dem ISM Cockpit erzeugt.
+          Für die Ablage als PDF bitte im Browser den Druckdialog öffnen
+          und „Als PDF speichern“ wählen.
+        </div>
+      </body>
+      </html>
+    `;
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+
+    setTimeout(() => {
+      win.focus();
+      try {
+        win.print();
+      } catch (_) {}
+    }, 400);
+  } catch (err) {
+    console.error(err);
+    alert("Personenbericht konnte nicht geöffnet werden.");
+  }
+}
+
 /* ----- Tab: Dateien (Google Drive – echte Anbindung) ----- */
 
 // Konfiguration für Google Drive – fertige Konfiguration
@@ -981,7 +1214,6 @@ function ensureGisLoaded() {
       }
     };
     script.onerror = () => reject(new Error("Google Identity Services Script konnte nicht geladen werden."));
-    document.head.appendChild(script);
   });
 }
 
@@ -1402,6 +1634,10 @@ function renderTabContacts(selected, body) {
   mailInput.className = "db-input";
   mailInput.placeholder = "E-Mail";
 
+  const photoInput = document.createElement("input");
+  photoInput.className = "db-input";
+  photoInput.placeholder = "Foto-URL (optional)";
+
   const notesInput = document.createElement("textarea");
   notesInput.className = "db-input";
   notesInput.rows = 2;
@@ -1422,6 +1658,7 @@ function renderTabContacts(selected, body) {
       elnr: phoneInput.value.trim(),
       address: addrInput.value.trim(),
       email: mailInput.value.trim(),
+      photoUrl: photoInput.value.trim(),
       notes: notesInput.value.trim()
     });
     save(KEYS.cases, state.cases);
@@ -1430,6 +1667,7 @@ function renderTabContacts(selected, body) {
     phoneInput.value = "";
     addrInput.value = "";
     mailInput.value = "";
+    photoInput.value = "";
     notesInput.value = "";
     render("/cases");
   });
@@ -1441,6 +1679,7 @@ function renderTabContacts(selected, body) {
     labelWrap("Telefonnummer", phoneInput),
     labelWrap("Adresse", addrInput),
     labelWrap("E-Mail", mailInput),
+    labelWrap("Foto-URL", photoInput),
     labelWrap("Weitere Infos", notesInput),
     saveBtn
   );
@@ -1490,10 +1729,17 @@ function renderTabContacts(selected, body) {
             `Telefonnummer: ${c.elnr || "-"}`,
             `Adresse: ${c.address || "-"}`,
             `E-Mail: ${c.email || "-"}`,
+            `Foto-URL: ${c.photoUrl || "-"}`,
             "",
             c.notes || ""
           ].join("\n")
         );
+      });
+
+      const reportBtn = document.createElement("button");
+      reportBtn.textContent = "Personenbericht";
+      reportBtn.addEventListener("click", () => {
+        exportContactPdf(selected, c);
       });
 
       const delBtn = document.createElement("button");
@@ -1505,7 +1751,7 @@ function renderTabContacts(selected, body) {
         render("/cases");
       });
 
-      actions.append(showBtn, delBtn);
+      actions.append(showBtn, reportBtn, delBtn);
 
       row.innerHTML = `
         <div>${escapeHtml(c.role)}</div>
