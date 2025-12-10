@@ -1,5 +1,5 @@
 /* ISM Cockpit – police DB style, PIN-Login, Cases/Contacts/Reports
-   Build: policeDB8 – Personen-Weltdatenbank + Polizei-Felder + Social Media
+   Build: policeDB6a – Kontakte mit Polizei-Feldern, Personenbericht-PDF
 */
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -10,7 +10,6 @@ const ISM = { org: "ISM Switzerland" };
 const KEYS = {
   session: "ismc-session",
   cases: "ismc-cases-v4",
-  persons: "ismc-persons-v1",
   seq: "ismc-case-seq",
   theme: "ismc-theme",
   route: "ismc-route"
@@ -19,9 +18,7 @@ const KEYS = {
 const state = {
   session: load(KEYS.session),
   cases: load(KEYS.cases) || [],
-  persons: load(KEYS.persons) || [],
-  search: "",
-  personSearch: ""
+  search: ""
 };
 
 /* ---------- Utils ---------- */
@@ -90,7 +87,6 @@ function escapeHtml(str = "") {
 function safeDate(r) {
   if (r.date) return new Date(r.date);
   if (r.updated) return new Date(r.updated);
-  if (r.created) return new Date(r.created);
   return new Date(0);
 }
 
@@ -242,51 +238,6 @@ function nextCaseNumber() {
   return `F${triple}${agent}`;
 }
 
-/* ---------- Personen-Weltdatenbank Helper ---------- */
-
-function addPersonFromCase(caseObj, contact) {
-  if (!contact || !contact.name) return;
-
-  const baseName = contact.name || "";
-  let firstName = "";
-  let lastName = "";
-  if (baseName) {
-    const parts = baseName.split(" ");
-    firstName = parts[0] || "";
-    lastName = parts.slice(1).join(" ");
-  }
-
-  const record = {
-    id: uid(),
-    name: baseName,
-    firstName: contact.firstName || firstName,
-    lastName: contact.lastName || lastName,
-    dob: contact.dob,
-    gender: contact.gender,
-    heightCm: contact.heightCm,
-    nationality: contact.nationality,
-    country: contact.country || contact.nationality || "",
-    city: contact.city || "",
-    elnr: contact.elnr,
-    address: contact.address,
-    email: contact.email,
-    hairColor: contact.hairColor,
-    eyeColor: contact.eyeColor,
-    build: contact.build,
-    idDoc: contact.idDoc,
-    photoUrl: contact.photoUrl,
-    instagram: contact.instagram || "",
-    snapchat: contact.snapchat || "",
-    tiktok: contact.tiktok || "",
-    notes: contact.notes,
-    sourceCaseId: caseObj ? caseObj.id : null,
-    sourceCaseTitle: caseObj ? caseObj.title : null,
-    created: now()
-  };
-  state.persons.push(record);
-  save(KEYS.persons, state.persons);
-}
-
 /* ---------- Main render ---------- */
 
 function render(route) {
@@ -298,7 +249,6 @@ function render(route) {
 
   if (route === "/" || route === "") return renderDashboard();
   if (route === "/cases") return renderCases();
-  if (route === "/directory") return renderDirectory();
   if (route === "/help") return renderHelp();
   if (route === "/my") return renderMy();
   if (route === "/settings") return renderSettings();
@@ -345,11 +295,10 @@ function renderDashboard() {
   const c3 = document.createElement("div");
   c3.className = "card db-card";
   c3.innerHTML = `
-    <h2>🌐 Personen</h2>
-    <p class="db-kpi">${state.persons.length}</p>
-    <p class="db-kpi-label">Einträge in der ISM-Personendatenbank</p>
+    <h2>🪪 My ISM</h2>
+    <p>Ihr Ausweis erscheint in Kürze hier.</p>
     <div class="btn-row">
-      <a class="btn" href="#/directory">Personen-DB öffnen</a>
+      <a class="btn" href="#/my">My ISM öffnen</a>
     </div>
   `;
 
@@ -685,7 +634,7 @@ function renderTabFiles(selected, body) {
   });
 }
 
-/* ----- Tab: Berichte + Gesamtbericht-PDF ----- */
+/* ----- Tab: Berichte + Gesamtbericht-PDF (chronologisch) ----- */
 
 function renderTabReports(selected, body) {
   const card = document.createElement("div");
@@ -977,7 +926,7 @@ function exportCasePdf(selected) {
   }
 }
 
-/* ----- Personenbericht-PDF (Case + Directory) ----- */
+/* ----- Personenbericht-PDF pro Kontakt (Polizei-Stil) ----- */
 
 function exportContactPdf(caseObj, contact) {
   try {
@@ -989,9 +938,7 @@ function exportContactPdf(caseObj, contact) {
       return;
     }
 
-    const caseTitle = escapeHtml(
-      caseObj && caseObj.title ? caseObj.title : "ISM-Global"
-    );
+    const caseTitle   = escapeHtml(caseObj.title || "");
     const name        = escapeHtml(contact.name || "");
     const role        = escapeHtml(contact.role || "");
     const dob         = escapeHtml(contact.dob || "–");
@@ -1005,22 +952,8 @@ function exportContactPdf(caseObj, contact) {
     const eyeColor    = escapeHtml(contact.eyeColor || "–");
     const build       = escapeHtml(contact.build || "–");
     const idDoc       = escapeHtml(contact.idDoc || "–");
-    const city        = escapeHtml(contact.city || "–");
-    const country     = escapeHtml(contact.country || contact.nationality || "–");
-    const instagram   = escapeHtml(contact.instagram || "–");
-    const snapchat    = escapeHtml(contact.snapchat || "–");
-    const tiktok      = escapeHtml(contact.tiktok || "–");
     const notes       = escapeHtml(contact.notes || "").replace(/\n/g, "<br>");
     const photoUrl    = contact.photoUrl ? escapeHtml(contact.photoUrl) : "";
-
-    const locationLine =
-      (city !== "–" || country !== "–")
-        ? (city !== "–" && country !== "–"
-            ? `${city}, ${country}`
-            : city !== "–"
-              ? city
-              : country)
-        : "–";
 
     let html = `
       <!doctype html>
@@ -1156,7 +1089,7 @@ function exportContactPdf(caseObj, contact) {
 
         <h1>Personenbericht ${name}</h1>
         <div class="meta">
-          Aktenzeichen / Referenz: ${caseTitle} · Generiert: ${escapeHtml(
+          Aktenzeichen: ${caseTitle} · Generiert: ${escapeHtml(
             new Date().toLocaleString()
           )}
         </div>
@@ -1182,10 +1115,6 @@ function exportContactPdf(caseObj, contact) {
             <div class="id-row">
               <div class="id-label">Nationalität</div>
               <div class="id-value">${nationality}</div>
-            </div>
-            <div class="id-row">
-              <div class="id-label">Wohnort / Land</div>
-              <div class="id-value">${locationLine}</div>
             </div>
             <div class="id-row">
               <div class="id-label">Rolle im Fall</div>
@@ -1218,18 +1147,6 @@ function exportContactPdf(caseObj, contact) {
             <div class="id-row">
               <div class="id-label">Ausweisdaten</div>
               <div class="id-value">${idDoc}</div>
-            </div>
-            <div class="id-row">
-              <div class="id-label">Instagram</div>
-              <div class="id-value">${instagram}</div>
-            </div>
-            <div class="id-row">
-              <div class="id-label">Snapchat</div>
-              <div class="id-value">${snapchat}</div>
-            </div>
-            <div class="id-row">
-              <div class="id-label">TikTok</div>
-              <div class="id-value">${tiktok}</div>
             </div>
           </div>
           <div class="idcard-right">
@@ -1277,7 +1194,7 @@ function exportContactPdf(caseObj, contact) {
   }
 }
 
-/* ----- Tab: Dateien (Google Drive) ----- */
+/* ----- Tab: Dateien (Google Drive – echte Anbindung) ----- */
 
 const GD = {
   API_KEY: "AIzaSyCtd628byDsaRHu7mE_vj_gDedvTuUybFE",
@@ -1696,7 +1613,7 @@ function renderTabDrive(selected, body) {
   })();
 }
 
-/* ----- Tab: Kontakte (im Fall, mit Polizei-Feldern) ----- */
+/* ----- Tab: Kontakte (mit Polizei-Feldern) ----- */
 
 function renderTabContacts(selected, body) {
   const card = document.createElement("div");
@@ -1796,7 +1713,7 @@ function renderTabContacts(selected, body) {
   saveBtn.addEventListener("click", () => {
     const name = nameInput.value.trim();
     if (!name) return;
-    const contact = {
+    selected.contacts.push({
       id: uid(),
       role:        roleSel.value,
       name,
@@ -1813,10 +1730,8 @@ function renderTabContacts(selected, body) {
       idDoc:       idDocInput.value.trim(),
       photoUrl:    photoInput.value.trim(),
       notes:       notesInput.value.trim()
-    };
-    selected.contacts.push(contact);
+    });
     save(KEYS.cases, state.cases);
-    addPersonFromCase(selected, contact);   // -> in weltweite DB übernehmen
 
     nameInput.value = "";
     dobInput.value = "";
@@ -1926,7 +1841,6 @@ function renderTabContacts(selected, body) {
         if (!confirm("Kontakt löschen?")) return;
         selected.contacts = selected.contacts.filter(x => x.id !== c.id);
         save(KEYS.cases, state.cases);
-        // aus weltweiter DB entfernen wir bewusst NICHT -> historische Spur
         render("/cases");
       });
 
@@ -1947,395 +1861,6 @@ function renderTabContacts(selected, body) {
   }
 
   body.appendChild(table);
-}
-
-/* ---------- Weltweite Personen-DB (nicht im Fall) ---------- */
-
-function renderDirectory() {
-  const view = $("#view");
-  view.innerHTML = "";
-
-  const title = document.createElement("h2");
-  title.textContent = "🌐 ISM Personen-Datenbank (weltweit)";
-
-  const layout = document.createElement("div");
-  layout.className = "columns db-columns";
-
-  const left = document.createElement("div");
-  left.className = "pane db-pane-left";
-  const right = document.createElement("div");
-  right.className = "pane db-pane-right";
-
-  // Karte: Button + Untermenü für neue Person
-  const createCard = document.createElement("div");
-  createCard.className = "card db-card";
-  const createTitle = document.createElement("div");
-  createTitle.className = "db-section-title";
-  createTitle.textContent = "Person erfassen";
-
-  const toggleBtn = document.createElement("button");
-  toggleBtn.className = "primary db-primary";
-  toggleBtn.textContent = "Neue Person erfassen";
-
-  const formWrap = document.createElement("div");
-  formWrap.className = "grid db-form-grid";
-  formWrap.style.display = "none";
-  formWrap.style.marginTop = "0.6rem";
-
-  toggleBtn.addEventListener("click", () => {
-    const visible = formWrap.style.display === "grid";
-    formWrap.style.display = visible ? "none" : "grid";
-  });
-
-  // Formular für volle Personendetails
-  const pFirstName = document.createElement("input");
-  pFirstName.className = "db-input";
-  pFirstName.placeholder = "Vorname";
-
-  const pLastName = document.createElement("input");
-  pLastName.className = "db-input";
-  pLastName.placeholder = "Nachname";
-
-  const pDob = document.createElement("input");
-  pDob.type = "date";
-  pDob.className = "db-input";
-
-  const pGender = document.createElement("select");
-  pGender.className = "db-input db-select";
-  [
-    ["unbekannt", "Unbekannt"],
-    ["männlich", "Männlich"],
-    ["weiblich", "Weiblich"],
-    ["divers", "Divers"]
-  ].forEach(([v, l]) => {
-    const o = document.createElement("option");
-    o.value = v;
-    o.textContent = l;
-    pGender.appendChild(o);
-  });
-
-  const pHeight = document.createElement("input");
-  pHeight.type = "number";
-  pHeight.className = "db-input";
-  pHeight.placeholder = "z.B. 182";
-
-  const pCity = document.createElement("input");
-  pCity.className = "db-input";
-  pCity.placeholder = "Wohnort (Ort)";
-
-  const pCountry = document.createElement("input");
-  pCountry.className = "db-input";
-  pCountry.placeholder = "Land (z.B. Schweiz)";
-
-  const pNationality = document.createElement("input");
-  pNationality.className = "db-input";
-  pNationality.placeholder = "Nationalität (z.B. Schweiz)";
-
-  const pAddress = document.createElement("input");
-  pAddress.className = "db-input";
-  pAddress.placeholder = "Adresse";
-
-  const pPhone = document.createElement("input");
-  pPhone.className = "db-input";
-  pPhone.placeholder = "Telefonnummer";
-
-  const pEmail = document.createElement("input");
-  pEmail.type = "email";
-  pEmail.className = "db-input";
-  pEmail.placeholder = "E-Mail";
-
-  const pHair = document.createElement("input");
-  pHair.className = "db-input";
-  pHair.placeholder = "Haarfarbe";
-
-  const pEye = document.createElement("input");
-  pEye.className = "db-input";
-  pEye.placeholder = "Augenfarbe";
-
-  const pBuild = document.createElement("input");
-  pBuild.className = "db-input";
-  pBuild.placeholder = "Statur / Merkmale";
-
-  const pIdDoc = document.createElement("input");
-  pIdDoc.className = "db-input";
-  pIdDoc.placeholder = "Ausweisdaten (Art, Nr.)";
-
-  const pPhoto = document.createElement("input");
-  pPhoto.className = "db-input";
-  pPhoto.placeholder = "Foto-URL (optional)";
-
-  const pInstagram = document.createElement("input");
-  pInstagram.className = "db-input";
-  pInstagram.placeholder = "Instagram @";
-
-  const pSnapchat = document.createElement("input");
-  pSnapchat.className = "db-input";
-  pSnapchat.placeholder = "Snapchat Name";
-
-  const pTiktok = document.createElement("input");
-  pTiktok.className = "db-input";
-  pTiktok.placeholder = "TikTok Name";
-
-  const pNotes = document.createElement("textarea");
-  pNotes.className = "db-input";
-  pNotes.rows = 2;
-  pNotes.placeholder = "Hinweise / Bemerkungen (optional)";
-
-  const saveBtn = document.createElement("button");
-  saveBtn.className = "primary db-primary";
-  saveBtn.textContent = "Person in DB speichern";
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.className = "db-btn-ghost";
-  cancelBtn.textContent = "Abbrechen";
-
-  cancelBtn.addEventListener("click", () => {
-    formWrap.style.display = "none";
-  });
-
-  saveBtn.addEventListener("click", () => {
-    const firstName = pFirstName.value.trim();
-    const lastName = pLastName.value.trim();
-    const name = [firstName, lastName].filter(Boolean).join(" ");
-    if (!name) return;
-
-    const record = {
-      id: uid(),
-      name,
-      firstName,
-      lastName,
-      dob: pDob.value,
-      gender: pGender.value,
-      heightCm: pHeight.value.trim(),
-      city: pCity.value.trim(),
-      country: pCountry.value.trim() || pNationality.value.trim(),
-      nationality: pNationality.value.trim(),
-      address: pAddress.value.trim(),
-      elnr: pPhone.value.trim(),
-      email: pEmail.value.trim(),
-      hairColor: pHair.value.trim(),
-      eyeColor: pEye.value.trim(),
-      build: pBuild.value.trim(),
-      idDoc: pIdDoc.value.trim(),
-      photoUrl: pPhoto.value.trim(),
-      instagram: pInstagram.value.trim(),
-      snapchat: pSnapchat.value.trim(),
-      tiktok: pTiktok.value.trim(),
-      notes: pNotes.value.trim(),
-      sourceCaseId: null,
-      sourceCaseTitle: null,
-      created: now()
-    };
-
-    state.persons.push(record);
-    save(KEYS.persons, state.persons);
-
-    pFirstName.value = "";
-    pLastName.value = "";
-    pDob.value = "";
-    pGender.value = "unbekannt";
-    pHeight.value = "";
-    pCity.value = "";
-    pCountry.value = "";
-    pNationality.value = "";
-    pAddress.value = "";
-    pPhone.value = "";
-    pEmail.value = "";
-    pHair.value = "";
-    pEye.value = "";
-    pBuild.value = "";
-    pIdDoc.value = "";
-    pPhoto.value = "";
-    pInstagram.value = "";
-    pSnapchat.value = "";
-    pTiktok.value = "";
-    pNotes.value = "";
-
-    formWrap.style.display = "none";
-    render("/directory");
-  });
-
-  formWrap.append(
-    labelWrap("Vorname", pFirstName),
-    labelWrap("Nachname", pLastName),
-    labelWrap("Geburtsdatum", pDob),
-    labelWrap("Geschlecht", pGender),
-    labelWrap("Körpergrösse (cm)", pHeight),
-    labelWrap("Wohnort (Ort)", pCity),
-    labelWrap("Land", pCountry),
-    labelWrap("Nationalität", pNationality),
-    labelWrap("Adresse", pAddress),
-    labelWrap("Telefonnummer", pPhone),
-    labelWrap("E-Mail", pEmail),
-    labelWrap("Haarfarbe", pHair),
-    labelWrap("Augenfarbe", pEye),
-    labelWrap("Statur / Merkmale", pBuild),
-    labelWrap("Ausweisdaten", pIdDoc),
-    labelWrap("Foto-URL", pPhoto),
-    labelWrap("Instagram", pInstagram),
-    labelWrap("Snapchat", pSnapchat),
-    labelWrap("TikTok", pTiktok),
-    labelWrap("Hinweise", pNotes),
-    saveBtn,
-    cancelBtn
-  );
-
-  createCard.append(createTitle, toggleBtn, formWrap);
-  left.appendChild(createCard);
-
-  // Suche + Liste
-  const searchCard = document.createElement("div");
-  searchCard.className = "card db-card";
-  const searchLabel = document.createElement("div");
-  searchLabel.className = "db-section-title";
-  searchLabel.textContent = "Personen suchen";
-  const searchInput = document.createElement("input");
-  searchInput.className = "db-input";
-  searchInput.placeholder =
-    "Suche nach Name, Wohnort, Nationalität, Social Media, Fallnummer …";
-  searchInput.value = state.personSearch;
-  searchInput.addEventListener("input", e => {
-    state.personSearch = e.target.value;
-    render("/directory");
-  });
-  searchCard.append(searchLabel, searchInput);
-  right.appendChild(searchCard);
-
-  const listCard = document.createElement("div");
-  listCard.className = "card db-card";
-  const listTitle = document.createElement("div");
-  listTitle.className = "db-section-title";
-  listTitle.textContent = "Trefferliste";
-
-  const table = document.createElement("div");
-  table.className = "db-table";
-  const head = document.createElement("div");
-  head.className = "db-row db-row-head";
-  head.innerHTML =
-    `<div>Wohnort / Land</div><div>Vorname</div><div>Nachname</div><div>Geburtsdatum</div><div>Aktionen</div>`;
-  table.appendChild(head);
-
-  const q = (state.personSearch || "").trim().toLowerCase();
-  const filtered = state.persons
-    .slice()
-    .sort((a, b) => {
-      const n = (a.name || "").localeCompare(b.name || "");
-      if (n !== 0) return n;
-      return safeDate(a) - safeDate(b);
-    })
-    .filter(p => {
-      if (!q) return true;
-      const hay = [
-        p.name,
-        p.firstName,
-        p.lastName,
-        p.city,
-        p.country,
-        p.nationality,
-        p.elnr,
-        p.email,
-        p.instagram,
-        p.snapchat,
-        p.tiktok,
-        p.sourceCaseTitle
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-
-  if (!filtered.length) {
-    const row = document.createElement("div");
-    row.className = "db-row";
-    row.innerHTML =
-      `<div class="db-cell-empty" colspan="5">Keine Personen gefunden.</div>`;
-    table.appendChild(row);
-  } else {
-    filtered.forEach(p => {
-      const row = document.createElement("div");
-      row.className = "db-row";
-
-      const actions = document.createElement("div");
-      actions.className = "btn-row";
-
-      const showBtn = document.createElement("button");
-      showBtn.textContent = "Details";
-      showBtn.addEventListener("click", () => {
-        alert(
-          [
-            `Name: ${p.name}`,
-            `Vorname: ${p.firstName || "-"}`,
-            `Nachname: ${p.lastName || "-"}`,
-            `Geburt: ${p.dob || "-"}`,
-            `Nationalität: ${p.nationality || "-"}`,
-            `Wohnort: ${p.city || "-"}`,
-            `Land: ${p.country || "-"}`,
-            `Telefon: ${p.elnr || "-"}`,
-            `E-Mail: ${p.email || "-"}`,
-            `Instagram: ${p.instagram || "-"}`,
-            `Snapchat: ${p.snapchat || "-"}`,
-            `TikTok: ${p.tiktok || "-"}`,
-            `Quelle: ${p.sourceCaseTitle || "ISM-DB (kein Fall)"}`,
-            "",
-            p.notes || ""
-          ].join("\n")
-        );
-      });
-
-      const reportBtn = document.createElement("button");
-      reportBtn.textContent = "Personenbericht";
-      reportBtn.addEventListener("click", () => {
-        const caseObj = p.sourceCaseId
-          ? state.cases.find(c => c.id === p.sourceCaseId) || {
-              id: null,
-              title: p.sourceCaseTitle || "ISM-Global"
-            }
-          : { id: null, title: "ISM-Global" };
-        exportContactPdf(caseObj, p);
-      });
-
-      const delBtn = document.createElement("button");
-      delBtn.textContent = "Löschen";
-      delBtn.addEventListener("click", () => {
-        if (!confirm("Person aus der weltweiten DB löschen?")) return;
-        state.persons = state.persons.filter(x => x.id !== p.id);
-        save(KEYS.persons, state.persons);
-        render("/directory");
-      });
-
-      actions.append(showBtn, reportBtn, delBtn);
-
-      const city = p.city || "";
-      const country = p.country || p.nationality || "";
-      const loc = [city, country].filter(Boolean).join(", ") || "–";
-
-      let firstName = p.firstName;
-      let lastName = p.lastName;
-      if (!firstName && !lastName && p.name) {
-        const parts = p.name.split(" ");
-        firstName = parts[0] || "";
-        lastName = parts.slice(1).join(" ");
-      }
-
-      row.innerHTML = `
-        <div>${escapeHtml(loc)}</div>
-        <div>${escapeHtml(firstName || "–")}</div>
-        <div>${escapeHtml(lastName || "–")}</div>
-        <div>${escapeHtml(p.dob || "–")}</div>
-      `;
-      const actCell = document.createElement("div");
-      actCell.appendChild(actions);
-      row.appendChild(actCell);
-
-      table.appendChild(row);
-    });
-  }
-
-  listCard.append(listTitle, table);
-  right.appendChild(listCard);
-
-  layout.append(left, right);
-  view.append(title, layout);
 }
 
 /* ---------- Misc Views ---------- */
@@ -2384,9 +1909,7 @@ function renderSettings() {
   clearBtn.addEventListener("click", () => {
     if (!confirm("Wirklich alle lokalen Cockpit-Daten löschen?")) return;
     state.cases = [];
-    state.persons = [];
     save(KEYS.cases, state.cases);
-    save(KEYS.persons, state.persons);
     render("/");
   });
 
@@ -2439,8 +1962,7 @@ function initGlobalUi() {
       const data = JSON.stringify(
         {
           exportedAt: new Date().toISOString(),
-          cases: state.cases,
-          persons: state.persons
+          cases: state.cases
         },
         null,
         2
@@ -2449,7 +1971,7 @@ function initGlobalUi() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "ism-backup.json";
+      a.download = "ism-cases-backup.json";
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -2466,14 +1988,12 @@ function initGlobalUi() {
       reader.onload = () => {
         try {
           const parsed = JSON.parse(reader.result);
-          if (!parsed || (!Array.isArray(parsed.cases) && !Array.isArray(parsed.persons))) {
+          if (!parsed || !Array.isArray(parsed.cases)) {
             alert("Ungültiges Backup.");
             return;
           }
-          if (Array.isArray(parsed.cases)) state.cases = parsed.cases;
-          if (Array.isArray(parsed.persons)) state.persons = parsed.persons;
+          state.cases = parsed.cases;
           save(KEYS.cases, state.cases);
-          save(KEYS.persons, state.persons);
           render("/cases");
         } catch {
           alert("Konnte die Datei nicht lesen.");
@@ -2521,15 +2041,6 @@ function initGlobalUi() {
       }
     ];
     save(KEYS.cases, state.cases);
-  }
-
-  // Erstinitialisierung: vorhandene Kontakte einmalig in Personen-DB ziehen
-  if (!state.persons.length) {
-    state.cases.forEach(c => {
-      (c.contacts || []).forEach(contact => {
-        addPersonFromCase(c, contact);
-      });
-    });
   }
 
   window.addEventListener("hashchange", syncRoute);
@@ -2620,4 +2131,287 @@ function initGlobalUi() {
   .db-input {
     padding: .5rem .6rem;
     border-radius: 6px;
-    border:
+    border: 1px solid rgba(255,255,255,.30);
+    background: #050609;
+    color: #f5f5f5;
+    font-size: .95rem;
+  }
+
+  .db-input:focus {
+    outline: 1px solid var(--ism-orange);
+    border-color: var(--ism-orange);
+  }
+
+  .db-select {
+    padding-right: 1.5rem;
+  }
+
+  .db-checkbox {
+    user-select: none;
+    font-size: .9rem;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    opacity: .9;
+  }
+
+  .db-primary {
+    background: var(--ism-orange);
+    border: none;
+    color: #000;
+    font-weight: 600;
+  }
+
+  .db-primary:hover {
+    filter: brightness(1.05);
+  }
+
+  .db-error {
+    color: #ff6b6b;
+    font-weight: 600;
+    font-size: .9rem;
+  }
+
+  .db-kpi {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--ism-orange);
+    margin: .2rem 0;
+  }
+
+  .db-kpi-label {
+    font-size: .9rem;
+    opacity: .8;
+    margin-bottom: .6rem;
+  }
+
+  .db-table {
+    display: grid;
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: .9rem;
+  }
+
+  .db-row {
+    display: grid;
+    grid-template-columns: 1.1fr .9fr 2.2fr .9fr .9fr;
+    align-items: stretch;
+  }
+
+  .db-row-head {
+    background: #181b25;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255,255,255,.25);
+  }
+
+  .db-row > div {
+    padding: .35rem .5rem;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    border-right: 1px solid rgba(255,255,255,.04);
+  }
+
+  .db-row > div:last-child {
+    border-right: none;
+  }
+
+  .db-row:nth-child(even):not(.db-row-head) {
+    background: #10121c;
+  }
+
+  .db-cell-text {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    max-width: 260px;
+  }
+
+  .db-cell-empty {
+    text-align: center;
+    grid-column: 1 / -1;
+    padding: .6rem .5rem;
+  }
+
+  .db-case-list {
+    margin-top: .75rem;
+  }
+
+  .db-case-row {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .5rem .55rem;
+    border-radius: 8px;
+    background: #05070e;
+    border: 1px solid rgba(255,255,255,.10);
+    margin-bottom: .35rem;
+  }
+
+  .db-case-row:hover {
+    border-color: var(--ism-orange);
+  }
+
+  .db-case-main {
+    display: grid;
+    gap: .12rem;
+  }
+
+  .db-case-title {
+    font-weight: 600;
+  }
+
+  .db-case-meta {
+    font-size: .78rem;
+    opacity: .8;
+  }
+
+  .db-case-actions {
+    text-align: right;
+    display: grid;
+    gap: .35rem;
+    align-items: center;
+    justify-items: end;
+  }
+
+  .db-status {
+    padding: .1rem .5rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    border: 1px solid rgba(255,255,255,.3);
+  }
+
+  .db-status-open {
+    color: #ffd28a;
+    border-color: #ffd28a33;
+  }
+
+  .db-status-progress {
+    color: #8fd1ff;
+    border-color: #8fd1ff44;
+  }
+
+  .db-status-closed {
+    color: #b0ffb0;
+    border-color: #b0ffb044;
+  }
+
+  .db-columns {
+    align-items: flex-start;
+  }
+
+  .db-pane-left {
+    max-width: 360px;
+  }
+
+  .db-pane-right {
+    min-width: 0;
+  }
+
+  .db-case-head {
+    display: grid;
+    gap: .5rem;
+  }
+
+  .db-case-head-main {
+    display: grid;
+    gap: .15rem;
+  }
+
+  .db-case-head-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--ism-orange);
+  }
+
+  .db-case-head-meta {
+    font-size: .8rem;
+    opacity: .75;
+  }
+
+  .db-case-head-actions {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .tabbar {
+    display: flex;
+    gap: .35rem;
+    margin-top: .4rem;
+    border-top: 1px solid rgba(255,255,255,.12);
+    padding-top: .35rem;
+  }
+
+  .tabbar button {
+    padding: .3rem .7rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.25);
+    background: #05070e;
+    font-size: .85rem;
+    color: #e5e5e5;
+    cursor: pointer;
+  }
+
+  .tabbar button.active {
+    background: var(--ism-orange);
+    color: #000;
+    border-color: var(--ism-orange);
+  }
+
+  .tabcontent {
+    display: grid;
+    gap: .8rem;
+    margin-top: .7rem;
+  }
+
+  .db-section-title {
+    font-weight: 600;
+    margin-bottom: .4rem;
+  }
+
+  .db-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: .3rem;
+  }
+
+  .db-section-meta {
+    font-size: .8rem;
+    opacity: .7;
+  }
+
+  .db-btn-ghost {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,.45);
+    padding: .3rem .6rem;
+    border-radius: 6px;
+    font-size: .85rem;
+    color: #f0f0f0;
+    cursor: pointer;
+  }
+
+  .db-btn-ghost:hover {
+    border-color: var(--ism-orange);
+  }
+
+  .db-form-grid {
+    grid-template-columns: 1fr;
+    gap: .5rem;
+  }
+
+  @media (max-width: 900px) {
+    .db-row {
+      grid-template-columns: 1.1fr .9fr 2fr;
+    }
+    .db-row-head {
+      grid-template-columns: 1.1fr .9fr 2fr;
+    }
+  }
+  `;
+
+  const s = document.createElement("style");
+  s.textContent = css;
+  document.head.appendChild(s);
+})();
