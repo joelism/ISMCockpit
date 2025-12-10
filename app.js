@@ -1,5 +1,5 @@
 /* ISM Cockpit – police DB style, PIN-Login, Cases/Contacts/Reports
-   Build: policeDB5 – chronological reports, Files tab + Google Drive
+   Build: policeDB6 – Kontakte mit Polizei-Feldern, Personenbericht-PDF
 */
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -228,7 +228,7 @@ function updateAgentBadge() {
   }
 }
 
-/* ---------- Cases helpers ---------- */
+/* ---------- Fälle helpers ---------- */
 
 function nextCaseNumber() {
   const agent = (state.session && state.session.agent) || "A017";
@@ -394,7 +394,6 @@ function renderCases() {
     state.cases.push(c);
     save(KEYS.cases, state.cases);
 
-    // Falls Google Drive bereits verbunden ist, gleich passenden Ordner anlegen
     if (driveState && driveState.clientInited && driveState.signedIn) {
       driveEnsureCaseFolder(c);
     }
@@ -927,7 +926,7 @@ function exportCasePdf(selected) {
   }
 }
 
-/* ----- NEU: Personenbericht-PDF pro Kontakt ----- */
+/* ----- Personenbericht-PDF pro Kontakt (Polizei-Stil) ----- */
 
 function exportContactPdf(caseObj, contact) {
   try {
@@ -939,15 +938,22 @@ function exportContactPdf(caseObj, contact) {
       return;
     }
 
-    const caseTitle = escapeHtml(caseObj.title || "");
-    const name = escapeHtml(contact.name || "");
-    const role = escapeHtml(contact.role || "");
-    const dob = escapeHtml(contact.dob || "–");
-    const phone = escapeHtml(contact.elnr || "–");
-    const address = escapeHtml(contact.address || "–");
-    const email = escapeHtml(contact.email || "–");
-    const notes = escapeHtml(contact.notes || "").replace(/\n/g, "<br>");
-    const photoUrl = contact.photoUrl ? escapeHtml(contact.photoUrl) : "";
+    const caseTitle   = escapeHtml(caseObj.title || "");
+    const name        = escapeHtml(contact.name || "");
+    const role        = escapeHtml(contact.role || "");
+    const dob         = escapeHtml(contact.dob || "–");
+    const gender      = escapeHtml(contact.gender || "–");
+    const heightCm    = escapeHtml(contact.heightCm || "–");
+    const nationality = escapeHtml(contact.nationality || "–");
+    const phone       = escapeHtml(contact.elnr || "–");
+    const address     = escapeHtml(contact.address || "–");
+    const email       = escapeHtml(contact.email || "–");
+    const hairColor   = escapeHtml(contact.hairColor || "–");
+    const eyeColor    = escapeHtml(contact.eyeColor || "–");
+    const build       = escapeHtml(contact.build || "–");
+    const idDoc       = escapeHtml(contact.idDoc || "–");
+    const notes       = escapeHtml(contact.notes || "").replace(/\n/g, "<br>");
+    const photoUrl    = contact.photoUrl ? escapeHtml(contact.photoUrl) : "";
 
     let html = `
       <!doctype html>
@@ -1095,24 +1101,52 @@ function exportContactPdf(caseObj, contact) {
               <div class="id-value">${name}</div>
             </div>
             <div class="id-row">
-              <div class="id-label">Rolle im Fall</div>
-              <div class="id-value">${role || "–"}</div>
-            </div>
-            <div class="id-row">
               <div class="id-label">Geburtsdatum</div>
               <div class="id-value">${dob}</div>
             </div>
             <div class="id-row">
-              <div class="id-label">Telefon</div>
-              <div class="id-value">${phone}</div>
+              <div class="id-label">Geschlecht</div>
+              <div class="id-value">${gender}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Körpergrösse</div>
+              <div class="id-value">${heightCm} cm</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Nationalität</div>
+              <div class="id-value">${nationality}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Rolle im Fall</div>
+              <div class="id-value">${role || "–"}</div>
             </div>
             <div class="id-row">
               <div class="id-label">Adresse</div>
               <div class="id-value">${address}</div>
             </div>
             <div class="id-row">
+              <div class="id-label">Telefon</div>
+              <div class="id-value">${phone}</div>
+            </div>
+            <div class="id-row">
               <div class="id-label">E-Mail</div>
               <div class="id-value">${email}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Haarfarbe</div>
+              <div class="id-value">${hairColor}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Augenfarbe</div>
+              <div class="id-value">${eyeColor}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Statur / Merkmale</div>
+              <div class="id-value">${build}</div>
+            </div>
+            <div class="id-row">
+              <div class="id-label">Ausweisdaten</div>
+              <div class="id-value">${idDoc}</div>
             </div>
           </div>
           <div class="idcard-right">
@@ -1162,12 +1196,10 @@ function exportContactPdf(caseObj, contact) {
 
 /* ----- Tab: Dateien (Google Drive – echte Anbindung) ----- */
 
-// Konfiguration für Google Drive – fertige Konfiguration
 const GD = {
   API_KEY: "AIzaSyCtd628byDsaRHu7mE_vj_gDedvTuUybFE",
   CLIENT_ID: "990383497142-prtdauaqssaveqjls6em5c5ngtkrvtsn.apps.googleusercontent.com",
   DISCOVERY_DOCS: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
-  // voller Zugriff, damit Ordner/Dateien erstellt werden können
   SCOPES: "https://www.googleapis.com/auth/drive"
 };
 
@@ -1318,7 +1350,6 @@ async function driveCreateFolder(name) {
   await driveLoadFiles();
 }
 
-
 async function driveEnsureCaseFolder(caseObj) {
   try {
     if (!caseObj || caseObj.driveFolderId) return;
@@ -1328,7 +1359,7 @@ async function driveEnsureCaseFolder(caseObj) {
       resource: {
         name: caseObj.title || "Fall",
         mimeType: "application/vnd.google-apps.folder",
-        parents: [] // direkt im Haupt-Drive
+        parents: []
       },
       fields: "id"
     });
@@ -1336,7 +1367,6 @@ async function driveEnsureCaseFolder(caseObj) {
     const id = res.result && res.result.id;
     if (id) {
       caseObj.driveFolderId = id;
-      // geänderten Fall speichern
       save(KEYS.cases, state.cases);
     }
   } catch (e) {
@@ -1365,7 +1395,6 @@ function renderTabDrive(selected, body) {
   status.style.fontSize = ".85rem";
   status.style.opacity = ".85";
 
-  // Wenn der Fall bereits einen verknüpften Drive-Ordner hat, Ordnerpfad vorbereiten
   if (selected && selected.driveFolderId) {
     driveState.currentFolderId = selected.driveFolderId;
     driveState.folderStack = [
@@ -1373,11 +1402,9 @@ function renderTabDrive(selected, body) {
       { id: selected.driveFolderId, name: selected.title || "Fallordner" }
     ];
   } else {
-    // Standard auf Root zurücksetzen
     driveState.currentFolderId = "root";
     driveState.folderStack = [{ id: "root", name: "Mein Drive" }];
   }
-
 
   function updateStatus() {
     const pathLabel = drivePathLabel();
@@ -1564,10 +1591,8 @@ function renderTabDrive(selected, body) {
   (async () => {
     try {
       await initDriveClient();
-      // kein automatischer Login-Versuch mehr – Benutzer klickt explizit auf "Mit Google Drive verbinden"
       updateStatus();
       if (driveState.signedIn) {
-        // Falls es noch keinen Ordner für diesen Fall gibt, jetzt anlegen
         if (selected && !selected.driveFolderId) {
           await driveEnsureCaseFolder(selected);
           if (selected.driveFolderId) {
@@ -1588,8 +1613,7 @@ function renderTabDrive(selected, body) {
   })();
 }
 
-
-/* ----- Tab: Kontakte (mit Telefonnummer) ----- */
+/* ----- Tab: Kontakte (mit Polizei-Feldern) ----- */
 
 function renderTabContacts(selected, body) {
   const card = document.createElement("div");
@@ -1621,6 +1645,29 @@ function renderTabContacts(selected, body) {
   dobInput.type = "date";
   dobInput.className = "db-input";
 
+  const genderSel = document.createElement("select");
+  genderSel.className = "db-input db-select";
+  [
+    ["unbekannt", "Unbekannt"],
+    ["männlich", "Männlich"],
+    ["weiblich", "Weiblich"],
+    ["divers", "Divers"]
+  ].forEach(([v, l]) => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = l;
+    genderSel.appendChild(o);
+  });
+
+  const heightInput = document.createElement("input");
+  heightInput.type = "number";
+  heightInput.className = "db-input";
+  heightInput.placeholder = "z.B. 182";
+
+  const nationalityInput = document.createElement("input");
+  nationalityInput.className = "db-input";
+  nationalityInput.placeholder = "z.B. Schweiz / Kosovo";
+
   const phoneInput = document.createElement("input");
   phoneInput.className = "db-input";
   phoneInput.placeholder = "Telefonnummer";
@@ -1634,6 +1681,22 @@ function renderTabContacts(selected, body) {
   mailInput.className = "db-input";
   mailInput.placeholder = "E-Mail";
 
+  const hairInput = document.createElement("input");
+  hairInput.className = "db-input";
+  hairInput.placeholder = "Haarfarbe (z.B. braun, kurz)";
+
+  const eyeInput = document.createElement("input");
+  eyeInput.className = "db-input";
+  eyeInput.placeholder = "Augenfarbe (z.B. braun)";
+
+  const buildInput = document.createElement("input");
+  buildInput.className = "db-input";
+  buildInput.placeholder = "Statur / Merkmale (z.B. schlank, tätowiert)";
+
+  const idDocInput = document.createElement("input");
+  idDocInput.className = "db-input";
+  idDocInput.placeholder = "Ausweisdaten (Art, Nr.)";
+
   const photoInput = document.createElement("input");
   photoInput.className = "db-input";
   photoInput.placeholder = "Foto-URL (optional)";
@@ -1641,7 +1704,7 @@ function renderTabContacts(selected, body) {
   const notesInput = document.createElement("textarea");
   notesInput.className = "db-input";
   notesInput.rows = 2;
-  notesInput.placeholder = "Weitere Infos";
+  notesInput.placeholder = "Weitere Infos (Besonderheiten, Hinweise …)";
 
   const saveBtn = document.createElement("button");
   saveBtn.className = "primary db-primary";
@@ -1652,23 +1715,39 @@ function renderTabContacts(selected, body) {
     if (!name) return;
     selected.contacts.push({
       id: uid(),
-      role: roleSel.value,
+      role:        roleSel.value,
       name,
-      dob: dobInput.value,
-      elnr: phoneInput.value.trim(),
-      address: addrInput.value.trim(),
-      email: mailInput.value.trim(),
-      photoUrl: photoInput.value.trim(),
-      notes: notesInput.value.trim()
+      dob:         dobInput.value,
+      gender:      genderSel.value,
+      heightCm:    heightInput.value.trim(),
+      nationality: nationalityInput.value.trim(),
+      elnr:        phoneInput.value.trim(),
+      address:     addrInput.value.trim(),
+      email:       mailInput.value.trim(),
+      hairColor:   hairInput.value.trim(),
+      eyeColor:    eyeInput.value.trim(),
+      build:       buildInput.value.trim(),
+      idDoc:       idDocInput.value.trim(),
+      photoUrl:    photoInput.value.trim(),
+      notes:       notesInput.value.trim()
     });
     save(KEYS.cases, state.cases);
+
     nameInput.value = "";
     dobInput.value = "";
+    genderSel.value = "unbekannt";
+    heightInput.value = "";
+    nationalityInput.value = "";
     phoneInput.value = "";
     addrInput.value = "";
     mailInput.value = "";
+    hairInput.value = "";
+    eyeInput.value = "";
+    buildInput.value = "";
+    idDocInput.value = "";
     photoInput.value = "";
     notesInput.value = "";
+
     render("/cases");
   });
 
@@ -1676,9 +1755,16 @@ function renderTabContacts(selected, body) {
     labelWrap("Typ", roleSel),
     labelWrap("Name", nameInput),
     labelWrap("Geburtsdatum", dobInput),
+    labelWrap("Geschlecht", genderSel),
+    labelWrap("Körpergrösse (cm)", heightInput),
+    labelWrap("Nationalität", nationalityInput),
     labelWrap("Telefonnummer", phoneInput),
     labelWrap("Adresse", addrInput),
     labelWrap("E-Mail", mailInput),
+    labelWrap("Haarfarbe", hairInput),
+    labelWrap("Augenfarbe", eyeInput),
+    labelWrap("Statur / besondere Merkmale", buildInput),
+    labelWrap("Ausweisdaten", idDocInput),
     labelWrap("Foto-URL", photoInput),
     labelWrap("Weitere Infos", notesInput),
     saveBtn
@@ -1726,9 +1812,16 @@ function renderTabContacts(selected, body) {
             `Typ: ${c.role}`,
             `Name: ${c.name}`,
             `Geburt: ${c.dob || "-"}`,
+            `Geschlecht: ${c.gender || "-"}`,
+            `Körpergrösse: ${c.heightCm || "-"} cm`,
+            `Nationalität: ${c.nationality || "-"}`,
             `Telefonnummer: ${c.elnr || "-"}`,
             `Adresse: ${c.address || "-"}`,
             `E-Mail: ${c.email || "-"}`,
+            `Haarfarbe: ${c.hairColor || "-"}`,
+            `Augenfarbe: ${c.eyeColor || "-"}`,
+            `Statur / Merkmale: ${c.build || "-"}`,
+            `Ausweisdaten: ${c.idDoc || "-"}`,
             `Foto-URL: ${c.photoUrl || "-"}`,
             "",
             c.notes || ""
