@@ -13,7 +13,8 @@ const KEYS = {
   people: "ismc-people-v1",
   seq: "ismc-case-seq",
   theme: "ismc-theme",
-  route: "ismc-route"
+  route: "ismc-route",
+  cf: "ismc-cf-config"    // { endpoint, apiKey }
 };
 
 const state = {
@@ -22,6 +23,17 @@ const state = {
   people: load(KEYS.people) || [],
   search: ""
 };
+
+/* ── Debounced background push to Cloudflare ───────────────────────── */
+let _cfPushTimer = null;
+function cfSchedulePush() {
+  clearTimeout(_cfPushTimer);
+  _cfPushTimer = setTimeout(() => {
+    if (cfConfig()) {
+      cfPush().catch(e => console.warn("[CF] Background-Push:", e.message));
+    }
+  }, 2000); // 2s nach letzter Änderung
+}
 
 /* ---------- Utils ---------- */
 
@@ -35,6 +47,10 @@ function load(k) {
 
 function save(k, v) {
   localStorage.setItem(k, JSON.stringify(v));
+  // Cloudflare im Hintergrund aktualisieren (debounced, nur wenn konfiguriert)
+  if (k === KEYS.cases || k === KEYS.people) {
+    cfSchedulePush();
+  }
 }
 
 function now() {
@@ -2089,61 +2105,108 @@ function renderSettings() {
   logoutBtn.textContent = "Abmelden (zur Login-Maske)";
   logoutBtn.addEventListener("click", logout);
 
-  // Google Drive Sektion
-  const driveTitle = document.createElement("h3");
-  driveTitle.textContent = "Google Drive";
+  // ── Cloudflare Sync Sektion ───────────────────────────────────
+  const cfTitle = document.createElement("h3");
+  cfTitle.textContent = "☁️ Cloudflare Sync";
+  cfTitle.style.marginTop = "1rem";
 
-  const driveStatus = document.createElement("p");
-  driveStatus.style.fontSize = ".85rem";
-  driveStatus.style.opacity = ".85";
+  const cfInfo = document.createElement("p");
+  cfInfo.style.fontSize = ".82rem";
+  cfInfo.style.opacity = ".75";
+  cfInfo.textContent = "Synchronisiert Personen und Fälle über deinen Cloudflare Worker " +
+    "– von PC, Handy und Tablet aus.";
 
-  function updateDriveStatus() {
-    if (!window.gapi || !driveState.clientInited) {
-      driveStatus.textContent = "Status: Noch nicht verbunden.";
-    } else if (driveState.signedIn) {
-      driveStatus.textContent = "Status: Verbunden mit Google Drive.";
-    } else {
-      driveStatus.textContent = "Status: Nicht angemeldet.";
+  const existingCfg = cfConfig() || {};
+
+  const cfEndpointInput = document.createElement("input");
+  cfEndpointInput.className = "db-input";
+  cfEndpointInput.type = "url";
+  cfEndpointInput.placeholder = "Worker-URL (z.B. https://ism-cockpit.dein-name.workers.dev)";
+  cfEndpointInput.value = existingCfg.endpoint || "";
+  cfEndpointInput.style.width = "100%";
+  cfEndpointInput.style.marginTop = ".4rem";
+
+  const cfKeyInput = document.createElement("input");
+  cfKeyInput.className = "db-input";
+  cfKeyInput.type = "password";
+  cfKeyInput.placeholder = "API-Key (x-api-key)";
+  cfKeyInput.value = existingCfg.apiKey || "";
+  cfKeyInput.style.width = "100%";
+  cfKeyInput.style.marginTop = ".4rem";
+
+  const cfStatus = document.createElement("p");
+  cfStatus.style.fontSize = ".82rem";
+  cfStatus.style.color = "var(--muted)";
+  cfStatus.style.minHeight = "1.4em";
+  const isCfg = !!(existingCfg.endpoint && existingCfg.apiKey);
+  cfStatus.textContent = isCfg ? "✅ Konfiguriert" : "⚠️ Noch nicht konfiguriert";
+
+  const cfBtnRow = document.createElement("div");
+  cfBtnRow.className = "btn-row";
+  cfBtnRow.style.marginTop = ".5rem";
+
+  const cfSaveBtn = document.createElement("button");
+  cfSaveBtn.className = "primary db-primary";
+  cfSaveBtn.textContent = "Zugangsdaten speichern";
+  cfSaveBtn.addEventListener("click", () => {
+    const ep  = (cfEndpointInput.value || "").trim().replace(/\/$/, "");
+    const key = (cfKeyInput.value || "").trim();
+    if (!ep || !key) { cfStatus.textContent = "❌ URL und Key sind erforderlich."; return; }
+    cfSaveConfig(ep, key);
+    cfStatus.textContent = "✅ Gespeichert";
+  });
+
+  const cfSyncBtn = document.createElement("button");
+  cfSyncBtn.className = "db-btn-ghost";
+  cfSyncBtn.textContent = "🔄 Jetzt synchronisieren";
+  cfSyncBtn.addEventListener("click", async () => {
+    cfSyncBtn.disabled = true;
+    await cfSync(cfStatus);
+    cfSyncBtn.disabled = false;
+  });
+
+  const cfPushBtn = document.createElement("button");
+  cfPushBtn.className = "db-btn-ghost";
+  cfPushBtn.textContent = "⬆️ Lokal → Cloud (überschreiben)";
+  cfPushBtn.addEventListener("click", async () => {
+    if (!confirm("Lokale Daten überschreiben die Cloud-Daten komplett. Fortfahren?")) return;
+    cfPushBtn.disabled = true;
+    try {
+      await cfPush();
+      cfStatus.textContent = "✅ Erfolgreich hochgeladen";
+    } catch (e) {
+      cfStatus.textContent = "❌ " + e.message;
     }
-  }
-  updateDriveStatus();
-
-  const driveBtnRow = document.createElement("div");
-  driveBtnRow.className = "btn-row";
-
-  const driveConnectBtn = document.createElement("button");
-  driveConnectBtn.className = "primary db-primary";
-  driveConnectBtn.textContent = "Mit Google Drive verbinden";
-  driveConnectBtn.addEventListener("click", async () => {
-    await driveSignIn();
-    updateDriveStatus();
+    cfPushBtn.disabled = false;
   });
 
-  const driveDisconnectBtn = document.createElement("button");
-  driveDisconnectBtn.className = "db-btn-ghost";
-  driveDisconnectBtn.textContent = "Abmelden";
-  driveDisconnectBtn.addEventListener("click", async () => {
-    await driveSignOut();
-    updateDriveStatus();
+  const cfPullBtn = document.createElement("button");
+  cfPullBtn.className = "db-btn-ghost";
+  cfPullBtn.textContent = "⬇️ Cloud → Lokal (mergen)";
+  cfPullBtn.addEventListener("click", async () => {
+    cfPullBtn.disabled = true;
+    try {
+      const r = await cfPull();
+      cfStatus.textContent = `✅ Geladen – ${r.people} Personen, ${r.cases} Fälle`;
+    } catch (e) {
+      cfStatus.textContent = "❌ " + e.message;
+    }
+    cfPullBtn.disabled = false;
   });
 
-  const driveBackupBtn = document.createElement("button");
-  driveBackupBtn.className = "db-btn-ghost";
-  driveBackupBtn.textContent = "Datenbank in Drive sichern";
-  driveBackupBtn.addEventListener("click", async () => {
-    await driveSyncGlobalPeople();
-  });
-
-  driveBtnRow.append(driveConnectBtn, driveDisconnectBtn, driveBackupBtn);
+  cfBtnRow.append(cfSaveBtn, cfSyncBtn, cfPushBtn, cfPullBtn);
 
   card.append(
     h2,
     themeBtn,
     clearBtn,
     logoutBtn,
-    driveTitle,
-    driveStatus,
-    driveBtnRow
+    cfTitle,
+    cfInfo,
+    cfEndpointInput,
+    cfKeyInput,
+    cfStatus,
+    cfBtnRow
   );
   view.appendChild(card);
 }
@@ -2598,6 +2661,118 @@ function renderGlobalDatabase() {
 
 /* ---------- Globale Personen-Synchronisation mit Google Drive ---------- */
 
+/* ═══════════════════════════════════════════════════════════════
+   CLOUDFLARE SYNC  –  ersetzt Google Drive
+   ═══════════════════════════════════════════════════════════════ */
+
+function cfConfig() {
+  try {
+    const raw = localStorage.getItem(KEYS.cf);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function cfSaveConfig(endpoint, apiKey) {
+  localStorage.setItem(KEYS.cf, JSON.stringify({ endpoint, apiKey }));
+}
+
+/**
+ * Holt people + cases vom Worker und merged sie mit dem lokalen Stand.
+ * Neuere Datensätze (updated-Timestamp) gewinnen.
+ */
+async function cfPull() {
+  const cfg = cfConfig();
+  if (!cfg || !cfg.endpoint || !cfg.apiKey) {
+    throw new Error("Cloudflare nicht konfiguriert (Einstellungen → Cloudflare Sync).");
+  }
+
+  const res = await fetch(cfg.endpoint + "/api/all", {
+    headers: { "x-api-key": cfg.apiKey }
+  });
+  if (!res.ok) throw new Error("Worker-Fehler " + res.status);
+
+  const remote = await res.json();
+
+  // ── Personen mergen ──────────────────────────────────────────
+  const remotePeople = Array.isArray(remote.people) ? remote.people : [];
+  const localPeople  = state.people || [];
+
+  const pMap = new Map();
+  remotePeople.forEach(p => pMap.set(p.id, p));
+  localPeople.forEach(p => {
+    const rem = pMap.get(p.id);
+    if (!rem || (p.updated || 0) >= (rem.updated || 0)) {
+      pMap.set(p.id, p);   // lokal neuer → lokal gewinnt
+    }
+  });
+  state.people = Array.from(pMap.values());
+  save(KEYS.people, state.people);
+
+  // ── Fälle mergen ─────────────────────────────────────────────
+  const remoteCases = Array.isArray(remote.cases) ? remote.cases : [];
+  const localCases  = state.cases || [];
+
+  const cMap = new Map();
+  remoteCases.forEach(c => cMap.set(c.id, c));
+  localCases.forEach(c => {
+    const rem = cMap.get(c.id);
+    if (!rem || (c.updated || c.created || 0) >= (rem.updated || rem.created || 0)) {
+      cMap.set(c.id, c);
+    }
+  });
+  state.cases = Array.from(cMap.values());
+  save(KEYS.cases, state.cases);
+
+  return { people: state.people.length, cases: state.cases.length };
+}
+
+/** Überträgt den aktuellen lokalen Stand zum Worker (überschreibt remote). */
+async function cfPush() {
+  const cfg = cfConfig();
+  if (!cfg || !cfg.endpoint || !cfg.apiKey) {
+    throw new Error("Cloudflare nicht konfiguriert (Einstellungen → Cloudflare Sync).");
+  }
+
+  const res = await fetch(cfg.endpoint + "/api/all", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": cfg.apiKey
+    },
+    body: JSON.stringify({
+      people: state.people || [],
+      cases:  state.cases  || []
+    })
+  });
+  if (!res.ok) throw new Error("Worker-Fehler " + res.status);
+  return true;
+}
+
+/** Pull → merge → Push: vollständige bidirektionale Synchronisation */
+async function cfSync(statusEl) {
+  function setStatus(msg, isErr = false) {
+    if (statusEl) {
+      statusEl.textContent = msg;
+      statusEl.style.color = isErr ? "#f87171" : "var(--muted)";
+    }
+  }
+  try {
+    setStatus("⏳ Verbinde mit Cloudflare …");
+    const pulled = await cfPull();
+    setStatus("⬆️ Übertrage lokale Daten …");
+    await cfPush();
+    setStatus(`✅ Synchronisiert – ${pulled.people} Personen, ${pulled.cases} Fälle`);
+    return true;
+  } catch (err) {
+    setStatus("❌ " + err.message, true);
+    console.error("cfSync:", err);
+    return false;
+  }
+}
+
+/* ── Google Drive (alt, wird nicht mehr aktiv verwendet) ── */
 async function driveSyncGlobalPeople() {
   try {
     // Sicherstellen, dass Drive-Client da ist
@@ -2774,15 +2949,19 @@ function renderGlobalDatabase() {
     render("/global-db");
   });
 
+  const syncStatus = document.createElement("span");
+  syncStatus.style.fontSize = ".82rem";
+  syncStatus.style.color = "var(--muted)";
+
   const syncBtn = document.createElement("button");
   syncBtn.className = "db-btn-ghost";
-  syncBtn.textContent = "Aktualisieren";
-  syncBtn.addEventListener("click", () => {
-    if (typeof driveSyncGlobalPeople === "function") {
-      driveSyncGlobalPeople();
-    } else {
-      alert("Google-Drive-Synchronisation ist nicht verfügbar.");
-    }
+  syncBtn.textContent = "🔄 Sync";
+  syncBtn.title = "Mit Cloudflare synchronisieren";
+  syncBtn.addEventListener("click", async () => {
+    syncBtn.disabled = true;
+    const ok = await cfSync(syncStatus);
+    syncBtn.disabled = false;
+    if (ok) render("/global-db");
   });
 
   const newBtn = document.createElement("button");
@@ -2791,6 +2970,7 @@ function renderGlobalDatabase() {
 
   topBar.appendChild(searchInput);
   topBar.appendChild(syncBtn);
+  topBar.appendChild(syncStatus);
   topBar.appendChild(newBtn);
 
   view.appendChild(topBar);
@@ -3341,6 +3521,15 @@ function initGlobalUi() {
   // Bestehende Kontakte in die globale Personendatenbank übernehmen
   syncGlobalPeopleFromCases();
   save(KEYS.people, state.people);
+
+  // Cloudflare Auto-Sync beim Start (falls konfiguriert)
+  if (cfConfig()) {
+    cfPull().then(r => {
+      console.log(`[CF] Auto-Sync: ${r.people} Personen, ${r.cases} Fälle`);
+    }).catch(e => {
+      console.warn("[CF] Auto-Sync fehlgeschlagen:", e.message);
+    });
+  }
 
   window.addEventListener("hashchange", syncRoute);
   syncRoute();
