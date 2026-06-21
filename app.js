@@ -187,7 +187,7 @@ const REPORT_TYPES = [
   { id: "auskunftsersuchen", label: "Auskunftsersuchen", icon: "inbox", autofill: true, letter: { recipientField: "ersuchtAn", bodyField: "ersuchenText", anredeDefault: "Sehr geehrte Damen und Herren" } },
   { id: "observationsauftrag", label: "Observationsauftrag", icon: "watch", autofill: true },
   { id: "schlussrapport", label: "Schlussbericht / Rapport", icon: "shield", autofill: true },
-  { id: "polizeimitteilung", label: "Mitteilung an Polizei", icon: "building", autofill: true, letter: { recipientField: "kanton", recipientPrefix: "Kantonspolizei ", bodyField: "begruendung", anredeDefault: "Sehr geehrte Damen und Herren" } },
+  { id: "polizeimitteilung", label: "Mitteilung an Polizei / Staatsanwaltschaft", icon: "building", autofill: true, letter: { recipientField: "kanton", bodyField: "begruendung", anredeDefault: "Sehr geehrte Damen und Herren" } },
   { id: "einvernahme", label: "Einvernahme / Befragungsbogen", icon: "interview", qa: true }
 ];
 
@@ -840,12 +840,28 @@ function fmtDateTimeInput(ts) {
 }
 
 /** Standard-Textbaustein für die Übergabe-Begründung an die Kantonspolizei. */
-function polizeiTextBaustein(kanton) {
-  return `Hiermit übergeben wir den vorliegenden Fall an die Kantonspolizei ${kanton} zur weiteren Bearbeitung.
+function polizeiTextBaustein(kanton, behoerdeTyp) {
+  const istStA = behoerdeTyp === "staatsanwaltschaft";
+  const empfaenger = istStA ? `die Staatsanwaltschaft des Kantons ${kanton}` : `die Kantonspolizei ${kanton}`;
+  const schluss = istStA
+    ? "Da der vorliegende Sachverhalt aus unserer Sicht bereits ausreichend dokumentiert ist, übergeben wir die Unterlagen direkt zur Prüfung und allfälligen Eröffnung eines Verfahrens."
+    : "Wir ersuchen um Übernahme der weiteren Sachverhaltsabklärung und allfälliger weiterer Schritte.";
+  return `Hiermit übergeben wir den vorliegenden Fall an ${empfaenger} zur weiteren Bearbeitung.
 
-Der ISM hat im Rahmen seiner Abklärungen Hinweise auf einen möglichen strafrechtlich relevanten Sachverhalt festgestellt. Da der ISM keine Zwangsmassnahmen wie Hausdurchsuchungen oder vergleichbare hoheitliche Befugnisse besitzt, ersuchen wir um Übernahme und allfällige weitere Schritte durch die zuständige Polizeistelle.
+Der ISM hat im Rahmen seiner Abklärungen Hinweise auf einen möglichen strafrechtlich relevanten Sachverhalt festgestellt. Da der ISM keine Zwangsmassnahmen wie Hausdurchsuchungen oder vergleichbare hoheitliche Befugnisse besitzt, ${schluss}
 
 Für Rückfragen steht die unten genannte ISM-Kontaktperson zur Verfügung.`;
+}
+
+/** Empfehlungstext: wann Polizei, wann Staatsanwaltschaft sinnvoller ist. */
+function authorityRecommendation(choice) {
+  if (choice === "staatsanwaltschaft") {
+    return "Direkt an die Staatsanwaltschaft: sinnvoll, wenn der Sachverhalt bereits gut dokumentiert ist (z.B. abgeschlossene ISM-Abklärung mit Berichten/Belegen) und keine unmittelbare Gefahr besteht, die ein sofortiges polizeiliches Eingreifen erfordert. Die Anzeige sollte schriftlich und unterzeichnet erfolgen.";
+  }
+  if (choice === "polizei") {
+    return "An die Polizei: sinnvoll bei akuter Gefährdungslage, wenn rasches Handeln nötig ist (z.B. Spurensicherung, unmittelbare Gefahr), oder wenn der Sachverhalt mündlich/telefonisch gemeldet werden soll. Die Polizei klärt den Fall ab und leitet ihn an die Staatsanwaltschaft weiter.";
+  }
+  return "Beide Wege sind rechtlich gleichwertig zulässig. Polizei eignet sich bei Dringlichkeit oder wenn noch Abklärungsbedarf besteht. Direkt an die Staatsanwaltschaft eignet sich bei bereits dokumentierten, nicht akuten Fällen.";
 }
 
 /**
@@ -898,6 +914,58 @@ function mountReportFields(host, fields, caseObj, getValue) {
       return;
     }
 
+    if (f.type === "authorityChoice") {
+      const choiceWrap = document.createElement("div");
+      choiceWrap.className = "authority-choice";
+      choiceWrap.dataset.fieldKey = f.key;
+      const current = existing || "polizei";
+      const options = [
+        { val: "polizei", label: "Polizei", sub: "Übliche Erstanlaufstelle" },
+        { val: "staatsanwaltschaft", label: "Staatsanwaltschaft", sub: "Direkte Übergabe ohne Polizei" }
+      ];
+      const tilesWrap = document.createElement("div");
+      tilesWrap.className = "authority-tiles";
+      const recoBox = document.createElement("div");
+      recoBox.className = "authority-reco";
+      function renderReco(val) { recoBox.textContent = authorityRecommendation(val); }
+      options.forEach(opt => {
+        const tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "authority-tile" + (opt.val === current ? " active" : "");
+        tile.dataset.value = opt.val;
+        tile.innerHTML = `<strong>${escapeHtml(opt.label)}</strong><span>${escapeHtml(opt.sub)}</span>`;
+        tile.addEventListener("click", () => {
+          $$(".authority-tile", tilesWrap).forEach(t => t.classList.remove("active"));
+          tile.classList.add("active");
+          choiceWrap.dataset.value = opt.val;
+          renderReco(opt.val);
+          // Abhängige Felder (Empfänger-Label, Dienststelle-Platzhalter, Begründungstext) aktualisieren.
+          const kantonLabel = host.querySelector('[data-field-key="kanton"]')?.closest(".field")?.querySelector("label");
+          if (kantonLabel) kantonLabel.textContent = opt.val === "staatsanwaltschaft" ? "Kanton (Staatsanwaltschaft)" : "Kanton (Polizei)";
+          const stelleInput = host.querySelector('[data-field-key="polizeistelle"]');
+          if (stelleInput) stelleInput.placeholder = opt.val === "staatsanwaltschaft" ? "z.B. Staatsanwaltschaft Region Aarau" : "z.B. Regionalpolizei Aarau";
+          const kantonSelect = host.querySelector('[data-field-key="kanton"]');
+          const begrField = host.querySelector('[data-field-key="begruendung"]');
+          if (begrField && kantonSelect) {
+            const oldPlaceholder = polizeiTextBaustein("[Kanton]", choiceWrap.dataset.prevValue);
+            if (begrField.value.trim() === oldPlaceholder.trim() || begrField.value.trim() === polizeiTextBaustein(kantonSelect.value || "[Kanton]", choiceWrap.dataset.prevValue).trim()) {
+              begrField.value = polizeiTextBaustein(kantonSelect.value || "[Kanton]", opt.val);
+            }
+          }
+          choiceWrap.dataset.prevValue = opt.val;
+        });
+        tilesWrap.appendChild(tile);
+      });
+      choiceWrap.dataset.value = current;
+      choiceWrap.dataset.prevValue = current;
+      renderReco(current);
+      choiceWrap.appendChild(tilesWrap);
+      choiceWrap.appendChild(recoBox);
+      wrap.appendChild(choiceWrap);
+      host.appendChild(wrap);
+      return;
+    }
+
     if (f.type === "select") {
       const select = document.createElement("select");
       select.className = "input";
@@ -920,9 +988,11 @@ function mountReportFields(host, fields, caseObj, getValue) {
         select.addEventListener("change", () => {
           const begrField = host.querySelector('[data-field-key="begruendung"]');
           if (!begrField) return;
-          const placeholderText = polizeiTextBaustein("[Kanton]");
+          const choiceWrap = host.querySelector('.authority-choice');
+          const behoerdeTyp = choiceWrap ? choiceWrap.dataset.value : undefined;
+          const placeholderText = polizeiTextBaustein("[Kanton]", behoerdeTyp);
           if (begrField.value.trim() === placeholderText.trim() || !begrField.dataset.userEdited) {
-            begrField.value = polizeiTextBaustein(select.value || "[Kanton]");
+            begrField.value = polizeiTextBaustein(select.value || "[Kanton]", behoerdeTyp);
           }
         });
       }
@@ -1030,11 +1100,15 @@ function formatReportFieldValueHtml(f, v) {
     if (!names.length) return "";
     return escapeHtml(names.join(", "));
   }
+  if (f.type === "authorityChoice") {
+    return v === "staatsanwaltschaft" ? "Staatsanwaltschaft" : "Polizei";
+  }
   return escapeHtml(v);
 }
 function hasReportFieldValue(f, v) {
   if (f.type === "qa") return Array.isArray(v) && v.length > 0;
   if (f.type === "personPicker") return Array.isArray(v) && v.length > 0;
+  if (f.type === "authorityChoice") return true;
   return !!v;
 }
 
@@ -1060,6 +1134,11 @@ function readReportFields(host, fields) {
       const names = $$('input[type="checkbox"]:checked', pickWrap).map(cb => cb.value);
       data[f.key] = names;
       if (names.length) hasContent = true;
+    } else if (f.type === "authorityChoice") {
+      const choiceWrap = host.querySelector(`.authority-choice[data-field-key="${f.key}"]`);
+      const val = choiceWrap ? choiceWrap.dataset.value : "polizei";
+      data[f.key] = val;
+      hasContent = true; // hat immer einen Default-Wert
     } else {
       const input = host.querySelector(`[data-field-key="${f.key}"]`);
       const val = (input && input.value || "").trim();
@@ -1140,8 +1219,9 @@ function reportFieldsFor(type) {
   if (type === "polizeimitteilung") {
     return [
       { key: "aktenzeichen", label: "ISM-Aktenzeichen", type: "text", autofill: "ref" },
-      { key: "kanton", label: "Kantonspolizei (Ort)", type: "select", options: KANTONE, placeholder: "Kanton wählen …" },
-      { key: "polizeistelle", label: "Konkrete Dienststelle (optional)", type: "text", placeholder: "z.B. Regionalpolizei Aarau" },
+      { key: "behoerdeTyp", label: "Zustellung an", type: "authorityChoice" },
+      { key: "kanton", label: "Kanton", type: "select", options: KANTONE, placeholder: "Kanton wählen …" },
+      { key: "polizeistelle", label: "Konkrete Dienststelle (optional)", type: "text", placeholder: "z.B. Regionalpolizei Aarau / Staatsanwaltschaft Region Aarau" },
       { key: "sachverhalt", label: "Sachverhalt / Verdacht", type: "textarea", rows: 5, autofill: "description" },
       { key: "betroffenePersonen", label: "Betroffene Person(en)", type: "personPicker" },
       { key: "begruendung", label: "Begründung der Übergabe", type: "textarea", rows: 6, autofill: "polizeiText" },
@@ -1730,13 +1810,17 @@ function exportReportAsLetter(c, r) {
   if (def.letter) {
     const lc = def.letter;
     let recipient = (data[lc.recipientField] || "").trim();
-    if (recipient && lc.recipientPrefix) recipient = lc.recipientPrefix + recipient;
+    let prefix = lc.recipientPrefix;
+    if (!prefix && data.behoerdeTyp) {
+      prefix = data.behoerdeTyp === "staatsanwaltschaft" ? "Staatsanwaltschaft des Kantons " : "Kantonspolizei ";
+    }
+    if (recipient && prefix) recipient = prefix + recipient;
     if (!recipient) recipient = "[Empfänger einsetzen]";
     const anrede = lc.anredeDefault || "Sehr geehrte Damen und Herren";
     const bodyText = (data[lc.bodyField] || "").trim() || "[Text einsetzen]";
 
-    // Übrige Felder (ausser Empfänger/Brieftext/Aktenzeichen/Sachbearbeiter) als Betreffzeilen-Infos sammeln
-    const skipKeys = new Set([lc.recipientField, lc.bodyField, "aktenzeichen", "kontaktSachbearbeiter", "sachbearbeiter"]);
+    // Übrige Felder (ausser Empfänger/Brieftext/Aktenzeichen/Sachbearbeiter/Behördenwahl) als Betreffzeilen-Infos sammeln
+    const skipKeys = new Set([lc.recipientField, lc.bodyField, "aktenzeichen", "kontaktSachbearbeiter", "sachbearbeiter", "behoerdeTyp"]);
     const extraRows = fields.filter(f => !skipKeys.has(f.key)).map(f => {
       const v = data[f.key];
       if (!hasReportFieldValue(f, v)) return "";
@@ -2310,7 +2394,7 @@ function renderHelp() {
       </div>
       <div class="help-block">
         <h3>Befugnisse des ISM</h3>
-        <p>Der ISM führt keine Zwangsmassnahmen wie Hausdurchsuchungen durch. Besteht ein entsprechender Verdacht, wird der Fall über die Vorlage "Mitteilung an Polizei" an die zuständige Polizeistelle übergeben.</p>
+        <p>Der ISM führt keine Zwangsmassnahmen wie Hausdurchsuchungen durch. Besteht ein entsprechender Verdacht, wird der Fall über die Vorlage "Mitteilung an Polizei / Staatsanwaltschaft" übergeben. Im Formular kann zwischen Polizei und direkter Übergabe an die Staatsanwaltschaft gewählt werden, inklusive kurzer Einschätzung, wann welcher Weg passender ist.</p>
       </div>
       <div class="help-block">
         <h3>Kontaktpersonen aus globaler Datenbank</h3>
