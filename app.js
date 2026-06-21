@@ -161,6 +161,12 @@ const CASE_TYPES = [
   { code: "AUS", label: "Auskunft",     icon: "inbox" },
   { code: "SOF", label: "Sonderfall",   icon: "warn" }
 ];
+const KANTONE = [
+  "Aargau","Appenzell Ausserrhoden","Appenzell Innerrhoden","Basel-Landschaft","Basel-Stadt",
+  "Bern","Freiburg","Genf","Glarus","Graubünden","Jura","Luzern","Neuenburg","Nidwalden",
+  "Obwalden","Schaffhausen","Schwyz","Solothurn","St. Gallen","Tessin","Thurgau","Uri",
+  "Waadt","Wallis","Zug","Zürich"
+];
 const CASE_STATUS = [
   { id: "erfasst",      label: "Erfasst",        badge: "badge-open" },
   { id: "bearbeitung",  label: "In Bearbeitung",  badge: "badge-progress" },
@@ -815,7 +821,31 @@ function autofillValueFor(autofillKey, c) {
   if (autofillKey === "title") return c.title || "";
   if (autofillKey === "officer") return c.officer || agentCode();
   if (autofillKey === "description") return c.description || "";
+  if (autofillKey === "polizeiText") return polizeiTextBaustein("[Kanton]");
+  if (autofillKey === "today") return fmtDateInput(now());
+  if (autofillKey === "nowDatetime") return fmtDateTimeInput(now());
+  if (autofillKey === "antragBegehren") return `Der ISM beantragt im Rahmen des Falls ${c.ref || ""} die nachfolgend beschriebene Massnahme.\n\nBegehren: …`;
+  if (autofillKey === "antragBegruendung") return `Die vorliegenden Erkenntnisse im Fall ${c.ref || ""} rechtfertigen aus Sicht des ISM das gestellte Begehren wie folgt:\n\n…`;
+  if (autofillKey === "ersuchenText") return `Im Rahmen unserer Abklärungen zum Fall ${c.ref || ""} ersuchen wir höflich um Auskunft über folgenden Sachverhalt:\n\n…\n\nWir danken für die Mithilfe und stehen für Rückfragen gerne zur Verfügung.`;
+  if (autofillKey === "observationsauftragText") return `Im Rahmen des Falls ${c.ref || ""} wird folgende Observation in Auftrag gegeben:\n\nBeobachtungsziel: …`;
+  if (autofillKey === "observationsweisung") return `Bei Feststellung sicherheitsrelevanter Vorfälle ist unverzüglich der Sachbearbeiter zu informieren. Eine direkte Kontaktaufnahme mit der Zielperson ist zu unterlassen.`;
+  if (autofillKey === "rapportEmpfehlung") return `Auf Basis der vorliegenden Feststellungen empfiehlt der ISM dem Auftraggeber folgendes weiteres Vorgehen:\n\n…`;
   return "";
+}
+
+/** Datum+Zeit als YYYY-MM-DDTHH:MM für <input type=datetime-local>. */
+function fmtDateTimeInput(ts) {
+  const d = ts ? new Date(ts) : new Date();
+  return fmtDateInput(ts) + "T" + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+/** Standard-Textbaustein für die Übergabe-Begründung an die Kantonspolizei. */
+function polizeiTextBaustein(kanton) {
+  return `Hiermit übergeben wir den vorliegenden Fall an die Kantonspolizei ${kanton} zur weiteren Bearbeitung.
+
+Der ISM hat im Rahmen seiner Abklärungen Hinweise auf einen möglichen strafrechtlich relevanten Sachverhalt festgestellt. Da der ISM keine Zwangsmassnahmen wie Hausdurchsuchungen oder vergleichbare hoheitliche Befugnisse besitzt, ersuchen wir um Übernahme und allfällige weitere Schritte durch die zuständige Polizeistelle.
+
+Für Rückfragen steht die unten genannte ISM-Kontaktperson zur Verfügung.`;
 }
 
 /**
@@ -868,10 +898,110 @@ function mountReportFields(host, fields, caseObj, getValue) {
       return;
     }
 
+    if (f.type === "select") {
+      const select = document.createElement("select");
+      select.className = "input";
+      select.dataset.fieldKey = f.key;
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = f.placeholder || "Bitte wählen …";
+      select.appendChild(blank);
+      (f.options || []).forEach(opt => {
+        const o = document.createElement("option");
+        o.value = opt; o.textContent = opt;
+        select.appendChild(o);
+      });
+      select.value = existing !== undefined ? (existing || "") : "";
+      wrap.appendChild(select);
+      host.appendChild(wrap);
+      // Spezialfall: Kantonswahl aktualisiert den Begründungs-Textbaustein live,
+      // aber nur solange der Text noch dem unveränderten Platzhalter entspricht.
+      if (f.key === "kanton") {
+        select.addEventListener("change", () => {
+          const begrField = host.querySelector('[data-field-key="begruendung"]');
+          if (!begrField) return;
+          const placeholderText = polizeiTextBaustein("[Kanton]");
+          if (begrField.value.trim() === placeholderText.trim() || !begrField.dataset.userEdited) {
+            begrField.value = polizeiTextBaustein(select.value || "[Kanton]");
+          }
+        });
+      }
+      return;
+    }
+
+    if (f.type === "personPicker") {
+      const pickWrap = document.createElement("div");
+      pickWrap.className = "person-pick-block";
+      pickWrap.dataset.fieldKey = f.key;
+      const contacts = (caseObj && caseObj.contacts) || [];
+      const selectedNames = Array.isArray(existing) ? existing : (existing ? String(existing).split(",").map(s => s.trim()).filter(Boolean) : []);
+      if (!contacts.length) {
+        pickWrap.innerHTML = `<div class="field-hint">Noch keine Kontaktpersonen im Fall erfasst. Erst im Tab "Kontaktpersonen" hinzufügen.</div>`;
+      } else {
+        contacts.forEach(p => {
+          const row = document.createElement("label");
+          row.className = "person-pick-row";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.value = p.name;
+          cb.checked = selectedNames.includes(p.name);
+          row.appendChild(cb);
+          const span = document.createElement("span");
+          span.textContent = p.name + (p.role ? ` (${p.role})` : "");
+          row.appendChild(span);
+          pickWrap.appendChild(row);
+        });
+      }
+      wrap.appendChild(pickWrap);
+      host.appendChild(wrap);
+      return;
+    }
+
+    if (f.type === "personPickerSingle") {
+      const contacts = (caseObj && caseObj.contacts) || [];
+      const listId = "dl-" + f.key + "-" + Math.random().toString(36).slice(2, 8);
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "input";
+      input.dataset.fieldKey = f.key;
+      input.setAttribute("list", listId);
+      input.placeholder = contacts.length ? "Person wählen oder eintippen …" : "Name eintippen (noch keine Kontaktpersonen im Fall erfasst)";
+      if (existing !== undefined) {
+        input.value = existing || "";
+      } else if (contacts.length === 1) {
+        // Bei genau einer Kontaktperson im Fall: direkt vorausfüllen.
+        input.value = contacts[0].name;
+      }
+      const datalist = document.createElement("datalist");
+      datalist.id = listId;
+      contacts.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.name;
+        datalist.appendChild(opt);
+      });
+      wrap.appendChild(input);
+      wrap.appendChild(datalist);
+      host.appendChild(wrap);
+      // Bei Personenbericht: Geburtsdatum mitübernehmen, sofern Feld vorhanden und leer.
+      if (f.linkedFields) {
+        input.addEventListener("change", () => {
+          const match = contacts.find(p => p.name === input.value);
+          if (!match) return;
+          (f.linkedFields || []).forEach(({ from, to }) => {
+            const targetInput = host.querySelector(`[data-field-key="${to}"]`);
+            if (targetInput && !targetInput.value && match[from]) targetInput.value = match[from];
+          });
+        });
+      }
+      return;
+    }
+
     let input;
+
     if (f.type === "textarea") {
       input = document.createElement("textarea");
       input.rows = f.rows || 4;
+      input.addEventListener("input", () => { input.dataset.userEdited = "1"; });
     } else {
       input = document.createElement("input");
       input.type = f.type;
@@ -895,10 +1025,16 @@ function formatReportFieldValueHtml(f, v) {
     if (!pairs.length) return "";
     return `<ol class="qa-display">${pairs.map(p => `<li><div class="qa-display-q">${escapeHtml(p.q || "")}</div><div class="qa-display-a">${escapeHtml(p.a || "(keine Antwort erfasst)")}</div></li>`).join("")}</ol>`;
   }
+  if (f.type === "personPicker") {
+    const names = Array.isArray(v) ? v : [];
+    if (!names.length) return "";
+    return escapeHtml(names.join(", "));
+  }
   return escapeHtml(v);
 }
 function hasReportFieldValue(f, v) {
   if (f.type === "qa") return Array.isArray(v) && v.length > 0;
+  if (f.type === "personPicker") return Array.isArray(v) && v.length > 0;
   return !!v;
 }
 
@@ -919,6 +1055,11 @@ function readReportFields(host, fields) {
       })).filter(p => p.q || p.a);
       data[f.key] = pairs;
       if (pairs.length) hasContent = true;
+    } else if (f.type === "personPicker") {
+      const pickWrap = host.querySelector(`.person-pick-block[data-field-key="${f.key}"]`);
+      const names = $$('input[type="checkbox"]:checked', pickWrap).map(cb => cb.value);
+      data[f.key] = names;
+      if (names.length) hasContent = true;
     } else {
       const input = host.querySelector(`[data-field-key="${f.key}"]`);
       const val = (input && input.value || "").trim();
@@ -933,7 +1074,7 @@ function reportFieldsFor(type) {
   const common = [];
   if (type === "kurzbericht") {
     return [
-      { key: "datum", label: "Datum/Zeit Ereignis", type: "datetime-local" },
+      { key: "datum", label: "Datum/Zeit Ereignis", type: "datetime-local", autofill: "nowDatetime" },
       { key: "ort", label: "Ort", type: "text" },
       { key: "inhalt", label: "Beobachtung / Sachverhalt", type: "textarea", rows: 6 },
     ];
@@ -942,15 +1083,15 @@ function reportFieldsFor(type) {
     return [
       { key: "antragAn", label: "Antrag an (Stelle/Person)", type: "text" },
       { key: "rechtsgrundlage", label: "Rechtsgrundlage", type: "text" },
-      { key: "begehren", label: "Antragsbegehren", type: "textarea", rows: 4 },
-      { key: "begruendung", label: "Begründung", type: "textarea", rows: 6 },
+      { key: "begehren", label: "Antragsbegehren", type: "textarea", rows: 4, autofill: "antragBegehren" },
+      { key: "begruendung", label: "Begründung", type: "textarea", rows: 6, autofill: "antragBegruendung" },
       { key: "frist", label: "Frist", type: "date" },
     ];
   }
   if (type === "personenbericht") {
     return [
-      { key: "personName", label: "Name der Person", type: "text" },
-      { key: "geburtsdatum", label: "Geburtsdatum", type: "date" },
+      { key: "personName", label: "Name der Person", type: "personPickerSingle", linkedFields: [{ from: "dob", to: "geburtsdatum" }, { from: "role", to: "rolle" }] },
+      { key: "geburtsdatum", label: "Geburtsdatum", type: "text", placeholder: "JJJJ-MM-TT oder Jahrgang" },
       { key: "rolle", label: "Rolle im Fall", type: "text", placeholder: "z.B. Beschuldigte:r, Auskunftsperson" },
       { key: "beschreibung", label: "Personenbeschreibung / Feststellungen", type: "textarea", rows: 6 },
     ];
@@ -960,7 +1101,7 @@ function reportFieldsFor(type) {
       { key: "ergebnis", label: "Ergebnis der Ermittlung", type: "textarea", rows: 4 },
       { key: "massnahmen", label: "Getroffene Massnahmen", type: "textarea", rows: 4 },
       { key: "empfehlung", label: "Empfehlung / weiteres Vorgehen", type: "textarea", rows: 4 },
-      { key: "abschlussdatum", label: "Abschlussdatum", type: "date" },
+      { key: "abschlussdatum", label: "Abschlussdatum", type: "date", autofill: "today" },
     ];
   }
   if (type === "auskunftsersuchen") {
@@ -969,7 +1110,7 @@ function reportFieldsFor(type) {
       { key: "ersuchtAn", label: "Ersuchen an (Stelle/Amt/Firma)", type: "text" },
       { key: "betreff", label: "Betreff", type: "text", autofill: "title" },
       { key: "rechtsgrundlage", label: "Rechtsgrundlage / Auftrag", type: "text" },
-      { key: "ersuchenText", label: "Ersuchen (Text)", type: "textarea", rows: 6, placeholder: "Wir ersuchen höflich um Auskunft über …" },
+      { key: "ersuchenText", label: "Ersuchen (Text)", type: "textarea", rows: 6, autofill: "ersuchenText" },
       { key: "frist", label: "Antwortfrist", type: "date" },
       { key: "sachbearbeiter", label: "Sachbearbeiter ISM", type: "text", autofill: "officer" },
     ];
@@ -978,11 +1119,11 @@ function reportFieldsFor(type) {
     return [
       { key: "aktenzeichen", label: "Aktenzeichen", type: "text", autofill: "ref" },
       { key: "auftragAn", label: "Auftrag an (Agent:in)", type: "text", autofill: "officer" },
-      { key: "zielperson", label: "Zielperson(en)", type: "text" },
+      { key: "zielperson", label: "Zielperson(en)", type: "personPicker" },
       { key: "zeitraum", label: "Beobachtungszeitraum", type: "text", placeholder: "z.B. 24.06.–28.06.2026" },
       { key: "ort", label: "Beobachtungsort(e)", type: "text" },
-      { key: "auftrag", label: "Auftragsinhalt / Beobachtungsziel", type: "textarea", rows: 5 },
-      { key: "weisung", label: "Besondere Weisungen", type: "textarea", rows: 3 },
+      { key: "auftrag", label: "Auftragsinhalt / Beobachtungsziel", type: "textarea", rows: 5, autofill: "observationsauftragText" },
+      { key: "weisung", label: "Besondere Weisungen", type: "textarea", rows: 3, autofill: "observationsweisung" },
     ];
   }
   if (type === "schlussrapport") {
@@ -991,28 +1132,29 @@ function reportFieldsFor(type) {
       { key: "auftraggeber", label: "Auftraggeber", type: "text" },
       { key: "zusammenfassung", label: "Zusammenfassung des Falls", type: "textarea", rows: 5, autofill: "description" },
       { key: "feststellungen", label: "Feststellungen / Ergebnisse", type: "textarea", rows: 6 },
-      { key: "empfehlung", label: "Empfehlung an Auftraggeber", type: "textarea", rows: 4 },
-      { key: "rapportDatum", label: "Rapport-Datum", type: "date" },
+      { key: "empfehlung", label: "Empfehlung an Auftraggeber", type: "textarea", rows: 4, autofill: "rapportEmpfehlung" },
+      { key: "rapportDatum", label: "Rapport-Datum", type: "date", autofill: "today" },
       { key: "sachbearbeiter", label: "Sachbearbeiter ISM", type: "text", autofill: "officer" },
     ];
   }
   if (type === "polizeimitteilung") {
     return [
       { key: "aktenzeichen", label: "ISM-Aktenzeichen", type: "text", autofill: "ref" },
-      { key: "polizeistelle", label: "Zuständige Polizeistelle", type: "text", placeholder: "z.B. Kantonspolizei Aargau" },
+      { key: "kanton", label: "Kantonspolizei (Ort)", type: "select", options: KANTONE, placeholder: "Kanton wählen …" },
+      { key: "polizeistelle", label: "Konkrete Dienststelle (optional)", type: "text", placeholder: "z.B. Regionalpolizei Aarau" },
       { key: "sachverhalt", label: "Sachverhalt / Verdacht", type: "textarea", rows: 5, autofill: "description" },
-      { key: "betroffenePersonen", label: "Betroffene Person(en)", type: "textarea", rows: 3 },
-      { key: "begruendung", label: "Begründung der Übergabe", type: "textarea", rows: 4, placeholder: "Hinweis: Hausdurchsuchungen und vergleichbare Zwangsmassnahmen führt der ISM nicht selbst durch." },
+      { key: "betroffenePersonen", label: "Betroffene Person(en)", type: "personPicker" },
+      { key: "begruendung", label: "Begründung der Übergabe", type: "textarea", rows: 6, autofill: "polizeiText" },
       { key: "kontaktSachbearbeiter", label: "Kontakt ISM-Sachbearbeiter", type: "text", autofill: "officer" },
     ];
   }
   if (type === "einvernahme") {
     return [
-      { key: "einvernommenePerson", label: "Einvernommene Person", type: "text" },
+      { key: "einvernommenePerson", label: "Einvernommene Person", type: "personPickerSingle", linkedFields: [{ from: "role", to: "rolle" }] },
       { key: "rolle", label: "Rolle (Zeuge/Beschuldigte:r/Auskunftsperson)", type: "text" },
-      { key: "datum", label: "Datum/Zeit", type: "datetime-local" },
+      { key: "datum", label: "Datum/Zeit", type: "datetime-local", autofill: "nowDatetime" },
       { key: "ort", label: "Ort der Einvernahme", type: "text" },
-      { key: "anwesend", label: "Weitere Anwesende", type: "text" },
+      { key: "anwesend", label: "Weitere Anwesende", type: "personPicker" },
       { key: "qa", label: "Fragen und Antworten", type: "qa", rows: 0 },
       { key: "bemerkungen", label: "Schlussbemerkungen", type: "textarea", rows: 3 },
     ];
