@@ -842,6 +842,11 @@ fieldset.form-block legend{
 .gdb-pick-sub{ font-size: .74rem; color: var(--muted); }
 .gdb-pick-meta{ font-size: .72rem; color: var(--faint); margin-top: 2px; }
 
+/* ── Personenauswahl (Checkbox-Liste, z.B. bei Polizeimitteilung) ── */
+.person-pick-block{ display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); }
+.person-pick-row{ display: flex; align-items: center; gap: 8px; font-size: .85rem; cursor: pointer; }
+.person-pick-row input[type="checkbox"]{ width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
+
 @media (max-width: 880px){
   .app-shell{ flex-direction: column; }
   .sidebar{ position: static; height: auto; width: auto; flex-direction: row; align-items: center; padding: 0; }
