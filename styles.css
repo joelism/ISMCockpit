@@ -812,6 +812,36 @@ fieldset.form-block legend{
 .help-block h3{ font-size: .88rem; font-weight: 700; margin: 0 0 4px; }
 .help-block p{ font-size: .85rem; color: var(--ink-soft); margin: 0; line-height: 1.6; }
 
+/* ── Einvernahme: Frage/Antwort-Bogen ──────────────────────────── */
+.qa-block{ display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.qa-row{ display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: start; padding: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.qa-row-num{ font-family: var(--font-mono); font-size: .78rem; color: var(--muted); padding-top: 8px; }
+.qa-row-fields{ display: flex; flex-direction: column; gap: 6px; }
+.qa-row-fields .qa-q{ font-weight: 600; }
+.qa-row-fields .qa-a{ font-family: var(--font-doc); }
+
+.qa-display{ margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 10px; }
+.qa-display li{ margin-bottom: 4px; }
+.qa-display-q{ font-weight: 600; font-family: var(--font-ui); font-size: .85rem; margin-bottom: 2px; }
+.qa-display-a{ font-family: var(--font-doc); }
+
+/* ── Personensuche (globale Datenbank → Fall) ──────────────────── */
+.search-box{ display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 8px 12px; background: var(--surface); }
+.search-box svg{ width: 16px; height: 16px; color: var(--faint); flex-shrink: 0; }
+.search-box input{ border: none; outline: none; background: transparent; font-size: .85rem; width: 100%; color: var(--ink); }
+.field-hint{ font-size: .78rem; color: var(--faint); padding: 8px 2px; }
+
+.gdb-pick-grid{ display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.gdb-pick-card{ display: flex; gap: 10px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color .1s ease, background .1s ease; }
+.gdb-pick-card:hover{ border-color: var(--accent); background: var(--accent-soft); }
+.gdb-pick-photo{ width: 38px; height: 38px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; color: var(--muted); }
+.gdb-pick-photo img{ width: 100%; height: 100%; object-fit: cover; }
+.gdb-pick-photo svg{ width: 16px; height: 16px; }
+.gdb-pick-info{ min-width: 0; }
+.gdb-pick-name{ font-weight: 700; font-size: .85rem; }
+.gdb-pick-sub{ font-size: .74rem; color: var(--muted); }
+.gdb-pick-meta{ font-size: .72rem; color: var(--faint); margin-top: 2px; }
+
 @media (max-width: 880px){
   .app-shell{ flex-direction: column; }
   .sidebar{ position: static; height: auto; width: auto; flex-direction: row; align-items: center; padding: 0; }
@@ -822,4 +852,5 @@ fieldset.form-block legend{
   .view{ padding: 16px; }
   .kpi-grid{ grid-template-columns: 1fr 1fr; }
   .case-cover-facts{ grid-template-columns: 1fr 1fr; }
+  .qa-row{ grid-template-columns: 1fr; }
 }
