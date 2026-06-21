@@ -184,10 +184,10 @@ const REPORT_TYPES = [
   { id: "antragsbericht",label: "Antragsbericht",    icon: "docRequest" },
   { id: "personenbericht",label: "Personenbericht",  icon: "docPerson" },
   { id: "abschlussbericht",label: "Abschlussbericht",icon: "docClose" },
-  { id: "auskunftsersuchen", label: "Auskunftsersuchen", icon: "inbox", autofill: true },
+  { id: "auskunftsersuchen", label: "Auskunftsersuchen", icon: "inbox", autofill: true, letter: { recipientField: "ersuchtAn", bodyField: "ersuchenText", anredeDefault: "Sehr geehrte Damen und Herren" } },
   { id: "observationsauftrag", label: "Observationsauftrag", icon: "watch", autofill: true },
   { id: "schlussrapport", label: "Schlussbericht / Rapport", icon: "shield", autofill: true },
-  { id: "polizeimitteilung", label: "Mitteilung an Polizei", icon: "building", autofill: true },
+  { id: "polizeimitteilung", label: "Mitteilung an Polizei", icon: "building", autofill: true, letter: { recipientField: "kanton", recipientPrefix: "Kantonspolizei ", bodyField: "begruendung", anredeDefault: "Sehr geehrte Damen und Herren" } },
   { id: "einvernahme", label: "Einvernahme / Befragungsbogen", icon: "interview", qa: true }
 ];
 
@@ -1245,10 +1245,12 @@ function renderCaseReportsTab(panel, c) {
         </div>
         <div class="doc-card-body">${bodyLines || "<em>Keine Angaben.</em>"}</div>
         <div class="doc-card-foot">
+          <button class="btn btn-sm" data-action="print-report">${icon("print")} Drucken</button>
           <button class="btn btn-sm" data-action="edit-report">${icon("edit")} Bearbeiten</button>
           <button class="btn btn-sm" data-action="delete-report">${icon("trash")} Löschen</button>
         </div>
       `;
+      card.querySelector('[data-action="print-report"]').addEventListener("click", () => exportReportAsLetter(c, r));
       card.querySelector('[data-action="edit-report"]').addEventListener("click", () => openReportEditDialog(c, r, renderReportsList));
       card.querySelector('[data-action="delete-report"]').addEventListener("click", () => {
         if (!confirm(`${def.label} vom ${fmtDate(r.createdAt)} wirklich löschen?`)) return;
@@ -1700,12 +1702,91 @@ function printDocument(title, bodyHtml) {
       .signature-block{margin-top:50px;display:flex;justify-content:space-between;font-family:'Inter',sans-serif;font-size:.78rem;}
       .signature-line{border-top:1px solid #1a1d23;padding-top:6px;width:220px;}
       .footer-note{margin-top:40px;font-family:'Inter',sans-serif;font-size:.68rem;color:#9aa1ad;text-align:center;border-top:1px solid #e2e5ea;padding-top:10px;}
+      .letter-address{margin:18px 0 26px;font-size:.92rem;}
+      .letter-subject{font-weight:700;margin-bottom:18px;}
+      .letter-anrede{margin-bottom:14px;}
+      .letter-body p{margin:0 0 14px;}
+      .letter-extra{margin-top:20px;padding-top:14px;border-top:1px solid #e2e5ea;}
+      .letter-gruss{margin-top:30px;}
       @media print{ body{padding:14mm 16mm;} }
     </style></head><body>${bodyHtml}</body></html>
   `);
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 350);
+}
+
+/**
+ * Druckt einen einzelnen Bericht entweder als formellen Geschäftsbrief
+ * (Anrede, Fliesstext, Grussformel, Unterschrift) — sofern der Berichtstyp
+ * als `letter` definiert ist — oder als strukturiertes Feld-Dokument.
+ */
+function exportReportAsLetter(c, r) {
+  const def = reportTypeDef(r.type);
+  const fields = reportFieldsFor(r.type);
+  const data = r.data || {};
+  const dateStr = fmtDate(r.createdAt || now());
+
+  if (def.letter) {
+    const lc = def.letter;
+    let recipient = (data[lc.recipientField] || "").trim();
+    if (recipient && lc.recipientPrefix) recipient = lc.recipientPrefix + recipient;
+    if (!recipient) recipient = "[Empfänger einsetzen]";
+    const anrede = lc.anredeDefault || "Sehr geehrte Damen und Herren";
+    const bodyText = (data[lc.bodyField] || "").trim() || "[Text einsetzen]";
+
+    // Übrige Felder (ausser Empfänger/Brieftext/Aktenzeichen/Sachbearbeiter) als Betreffzeilen-Infos sammeln
+    const skipKeys = new Set([lc.recipientField, lc.bodyField, "aktenzeichen", "kontaktSachbearbeiter", "sachbearbeiter"]);
+    const extraRows = fields.filter(f => !skipKeys.has(f.key)).map(f => {
+      const v = data[f.key];
+      if (!hasReportFieldValue(f, v)) return "";
+      return `<div class="field-row"><span class="flabel">${escapeHtml(f.label)}</span>${formatReportFieldValueHtml(f, v)}</div>`;
+    }).join("");
+
+    const sachbearbeiter = data.kontaktSachbearbeiter || data.sachbearbeiter || c.officer || agentCode();
+
+    const bodyHtml = `
+      <div class="doc-letterhead">
+        <div class="org">ISM Switzerland<small>Internal Security &amp; Mediation</small></div>
+        <div class="ref">${escapeHtml(c.ref || "")}<br>${dateStr}</div>
+      </div>
+      <div class="letter-address">${escapeHtml(recipient)}</div>
+      <div class="letter-subject">Betreff: ${escapeHtml(def.label)} — Fall ${escapeHtml(c.ref || "")}, ${escapeHtml(c.title || "")}</div>
+      <div class="letter-anrede">${escapeHtml(anrede)}</div>
+      <div class="letter-body">${escapeHtml(bodyText).split("\n\n").map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("")}</div>
+      ${extraRows ? `<div class="letter-extra">${extraRows}</div>` : ""}
+      <div class="letter-gruss">Freundliche Grüsse</div>
+      <div class="signature-block">
+        <div class="signature-line">${escapeHtml(sachbearbeiter)}<br><span style="color:#9aa1ad;font-size:.7rem;">ISM Switzerland, Sachbearbeitung</span></div>
+        <div class="signature-line">Ort, Datum: Aarau, ${dateStr}</div>
+      </div>
+      <div class="footer-note">ISM Switzerland · Internes Dokument · Aktenzeichen ${escapeHtml(c.ref || "")} · Erstellt ${fmt(r.createdAt || now())}</div>
+    `;
+    printDocument(`${def.label} – ${c.ref || ""}`, bodyHtml);
+    return;
+  }
+
+  // Kein Brief-Typ: als strukturiertes Einzeldokument drucken (gleiches Layout wie im Dossier).
+  const rows = fields.map(f => {
+    const v = data[f.key];
+    if (!hasReportFieldValue(f, v)) return "";
+    return `<div class="field-row"><span class="flabel">${escapeHtml(f.label)}</span>${formatReportFieldValueHtml(f, v)}</div>`;
+  }).join("");
+  const bodyHtml = `
+    <div class="doc-letterhead">
+      <div class="org">ISM Switzerland<small>Internal Security &amp; Mediation</small></div>
+      <div class="ref">${escapeHtml(c.ref || "")}<br>${dateStr}</div>
+    </div>
+    <h1>${escapeHtml(def.label)}</h1>
+    <div class="sub">Fall ${escapeHtml(c.ref || "")} · ${escapeHtml(c.title || "")}</div>
+    <div class="report-block">${rows || "<em>Keine Angaben.</em>"}</div>
+    <div class="signature-block">
+      <div class="signature-line">${escapeHtml(r.author || agentCode())}<br><span style="color:#9aa1ad;font-size:.7rem;">ISM Switzerland, Sachbearbeitung</span></div>
+      <div class="signature-line">Ort, Datum: Aarau, ${dateStr}</div>
+    </div>
+    <div class="footer-note">ISM Switzerland · Internes Dokument · Aktenzeichen ${escapeHtml(c.ref || "")} · Erstellt ${fmt(r.createdAt || now())}</div>
+  `;
+  printDocument(`${def.label} – ${c.ref || ""}`, bodyHtml);
 }
 
 function exportCaseDossier(c) {
