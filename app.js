@@ -21,8 +21,77 @@ const state = {
   session: load(KEYS.session),
   cases: load(KEYS.cases) || [],
   people: load(KEYS.people) || [],
-  search: ""
+  search: "",
+  myCases: []          // persönliche Fälle (Supabase, pro Agent)
 };
+
+/* ── Supabase (Auth + "Meine Fälle") ───────────────────────────────── */
+const SUPABASE_URL = "https://eptldytuwvvczwgtgzwq.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVwdGxkeXR1d3Z2Y3p3Z3RnendxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNDg1OTUsImV4cCI6MjA5NzYyNDU5NX0.ZFlxt-mbx42mBJfhBGoUs05Ocmlb1KWBXpzwWOMdK5A";
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/** Aktueller Supabase-User (null wenn nicht eingeloggt) */
+async function sbCurrentUser() {
+  const { data, error } = await sb.auth.getUser();
+  if (error) return null;
+  return data.user || null;
+}
+
+/** Login mit Email + Passwort. Wirft bei Fehler. */
+async function sbLogin(email, password) {
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data.user;
+}
+
+async function sbLogout() {
+  await sb.auth.signOut();
+}
+
+/** Holt alle eigenen Fälle (RLS sorgt dafür, dass nur eigene zurückkommen) */
+async function sbFetchMyCases() {
+  const { data, error } = await sb
+    .from("personal_cases")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function sbCreateCase({ title, status, description, data: extra }) {
+  const user = await sbCurrentUser();
+  if (!user) throw new Error("Nicht eingeloggt.");
+  const { data, error } = await sb
+    .from("personal_cases")
+    .insert({
+      owner_id: user.id,
+      title,
+      status: status || "offen",
+      description: description || "",
+      data: extra || {}
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function sbUpdateCase(id, patch) {
+  const { data, error } = await sb
+    .from("personal_cases")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function sbDeleteCase(id) {
+  const { error } = await sb.from("personal_cases").delete().eq("id", id);
+  if (error) throw error;
+}
 
 /* ── Debounced background push to Cloudflare ───────────────────────── */
 let _cfPushTimer = null;
@@ -266,7 +335,7 @@ function syncRoute() {
   }
 }
 
-/* ---------- Login – PIN 500011, Agent A017 ---------- */
+/* ---------- Login – Supabase Auth (Email/Passwort, kein Self-Signup) ---------- */
 
 function renderLogin() {
   const view = $("#view");
@@ -279,17 +348,15 @@ function renderLogin() {
         <div class="db-subtitle">Secure Case Database · Switzerland</div>
       </header>
       <section class="db-body">
-        <p><strong>Anmelden als A017</strong></p>
+        <p><strong>Anmelden</strong></p>
         <div class="field" style="display:grid;gap:6px;text-align:left">
-          <label for="pinInput">PIN</label>
-          <input id="pinInput" class="db-input" type="password" inputmode="numeric"
-                 maxlength="12" placeholder="*****">
-          <label class="db-checkbox">
-            <input type="checkbox" id="showPin"> Anzeigen
-          </label>
+          <label for="emailInput">Email</label>
+          <input id="emailInput" class="db-input" type="email" autocomplete="username" placeholder="agent@ism.ch">
+          <label for="pwInput" style="margin-top:.4rem">Passwort</label>
+          <input id="pwInput" class="db-input" type="password" autocomplete="current-password" placeholder="••••••••">
         </div>
         <button id="loginBtn" class="primary db-primary">Jetzt einloggen</button>
-        <div id="loginError" class="db-error" style="display:none;">Falscher PIN.</div>
+        <div id="loginError" class="db-error" style="display:none;">Login fehlgeschlagen.</div>
       </section>
       <footer class="db-footer">
         ISM Internal Use Only · Unauthorized access prohibited
@@ -297,22 +364,26 @@ function renderLogin() {
     </div>
  `;
 
-  const pin = $("#pinInput");
-  const showPin = $("#showPin");
+  const emailEl = $("#emailInput");
+  const pwEl = $("#pwInput");
   const error = $("#loginError");
   const btn = $("#loginBtn");
 
-  if (showPin) {
-    showPin.addEventListener("change", e => {
-      pin.type = e.target.checked ? "text" : "password";
-    });
-  }
-
-  function tryLogin() {
-    const value = (pin.value || "").trim();
-    if (value === "500011") {
+  async function tryLogin() {
+    const email = (emailEl.value || "").trim();
+    const password = pwEl.value || "";
+    if (!email || !password) {
+      error.textContent = "Bitte Email und Passwort eingeben.";
+      error.style.display = "block";
+      return;
+    }
+    btn.disabled = true;
+    if (error) error.style.display = "none";
+    try {
+      const user = await sbLogin(email, password);
       state.session = {
-        agent: "A017",
+        agent: user.email,
+        userId: user.id,
         org: ISM.org,
         loginAt: now()
       };
@@ -320,25 +391,32 @@ function renderLogin() {
       updateAgentBadge();
       const route = localStorage.getItem(KEYS.route) || "/cases";
       location.hash = "#" + route;
-    } else {
-      if (error) error.style.display = "block";
-      pin.focus();
-      pin.select && pin.select();
+    } catch (e) {
+      if (error) {
+        error.textContent = "Login fehlgeschlagen: " + (e.message || "unbekannter Fehler");
+        error.style.display = "block";
+      }
+      pwEl.focus();
+      pwEl.select && pwEl.select();
+    } finally {
+      btn.disabled = false;
     }
   }
 
   if (btn) btn.addEventListener("click", tryLogin);
-  if (pin) {
-    pin.addEventListener("keyup", e => {
+  [emailEl, pwEl].forEach(el => {
+    if (!el) return;
+    el.addEventListener("keyup", e => {
       if (e.key === "Enter") tryLogin();
     });
-    setTimeout(() => pin.focus(), 0);
-  }
+  });
+  setTimeout(() => emailEl && emailEl.focus(), 0);
 }
 
 function logout() {
   state.session = null;
   localStorage.removeItem(KEYS.session);
+  sbLogout().catch(() => {});
   renderLogin();
 }
 
@@ -352,11 +430,17 @@ function updateAgentBadge() {
 /* ---------- Fälle helpers ---------- */
 
 function nextCaseNumber() {
-  const agent = (state.session && state.session.agent) || "A017";
   const raw = parseInt(localStorage.getItem(KEYS.seq) || "9", 10) + 1;
   localStorage.setItem(KEYS.seq, String(raw));
   const triple = String(raw).padStart(3, "0");
-  return `F${triple}${agent}`;
+  return `F${triple}${agentCode()}`;
+}
+
+/** Kurzes Kürzel aus der Agent-Kennung (Email) für Fallnummern, z.B. "joel@ism.ch" → "JOEL" */
+function agentCode() {
+  const agent = (state.session && state.session.agent) || "A017";
+  const local = agent.split("@")[0] || agent;
+  return local.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase() || "A017";
 }
 
 /* ---------- Main render ---------- */
@@ -370,6 +454,7 @@ function render(route) {
 
   if (route === "/" || route === "") return renderDashboard();
   if (route === "/cases") return renderCases();
+  if (route === "/my-cases") return renderMyCases();
   if (route === "/global-db") return renderGlobalDatabase();
   if (route === "/help") return renderHelp();
   if (route === "/my") return renderMy();
@@ -2076,6 +2161,161 @@ function renderMy() {
   view.appendChild(card);
 }
 
+/* ---------- Meine Fälle (Supabase, pro Agent) ---------- */
+
+async function renderMyCases() {
+  const view = $("#view");
+  view.innerHTML = "";
+
+  const wrap = document.createElement("div");
+  wrap.className = "grid";
+
+  const header = document.createElement("div");
+  header.className = "card db-card";
+  header.innerHTML = `
+    <h2>🗂️ Meine Fälle</h2>
+    <p style="font-size:.85rem;opacity:.75;margin-top:-.4rem">
+      Persönlich angelegte Fälle – nur für dich sichtbar (Supabase, getrennt von der globalen Fall-Datenbank).
+    </p>
+  `;
+
+  const formCard = document.createElement("div");
+  formCard.className = "card db-card grid";
+  formCard.innerHTML = `<h3>Neuer Fall</h3>`;
+
+  const titleInput = document.createElement("input");
+  titleInput.className = "db-input";
+  titleInput.placeholder = "Titel";
+
+  const statusSelect = document.createElement("select");
+  statusSelect.className = "db-input";
+  statusSelect.innerHTML = `
+    <option value="offen">offen</option>
+    <option value="in Bearbeitung">in Bearbeitung</option>
+    <option value="geschlossen">geschlossen</option>
+  `;
+
+  const descInput = document.createElement("textarea");
+  descInput.className = "db-input";
+  descInput.placeholder = "Beschreibung (optional)";
+  descInput.rows = 3;
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "primary db-primary";
+  addBtn.textContent = "Fall anlegen";
+
+  const formStatus = document.createElement("p");
+  formStatus.style.fontSize = ".82rem";
+  formStatus.style.color = "var(--muted)";
+  formStatus.style.minHeight = "1.4em";
+
+  formCard.append(
+    labelWrap("Titel", titleInput),
+    labelWrap("Status", statusSelect),
+    labelWrap("Beschreibung", descInput),
+    addBtn,
+    formStatus
+  );
+
+  const listCard = document.createElement("div");
+  listCard.className = "card db-card";
+  listCard.innerHTML = `<h3>Übersicht</h3>`;
+
+  const list = document.createElement("div");
+  list.className = "grid";
+  list.style.marginTop = ".5rem";
+  listCard.appendChild(list);
+
+  wrap.append(header, formCard, listCard);
+  view.appendChild(wrap);
+
+  function renderList(cases) {
+    list.innerHTML = "";
+    if (!cases.length) {
+      const empty = document.createElement("p");
+      empty.style.opacity = ".7";
+      empty.textContent = "Noch keine persönlichen Fälle vorhanden.";
+      list.appendChild(empty);
+      return;
+    }
+    cases.forEach(c => {
+      const item = document.createElement("div");
+      item.className = "case";
+      item.innerHTML = `
+        <header>
+          <strong>${escapeHtml(c.title)}</strong>
+          <span class="db-status db-status-${c.status === "geschlossen" ? "closed" : c.status === "in Bearbeitung" ? "progress" : "open"}">${escapeHtml(c.status || "offen")}</span>
+        </header>
+        <div class="meta">Erstellt: ${fmt(new Date(c.created_at).getTime())}</div>
+        ${c.description ? `<div class="body">${escapeHtml(c.description)}</div>` : ""}
+        <div class="btn-row">
+          <button class="db-btn-ghost" data-action="cycle-status">Status ändern</button>
+          <button class="db-btn-ghost" data-action="delete">Löschen</button>
+        </div>
+      `;
+      item.querySelector('[data-action="cycle-status"]').addEventListener("click", async () => {
+        const order = ["offen", "in Bearbeitung", "geschlossen"];
+        const next = order[(order.indexOf(c.status) + 1) % order.length];
+        try {
+          await sbUpdateCase(c.id, { status: next });
+          await loadAndRender();
+        } catch (e) {
+          alert("Fehler beim Aktualisieren: " + e.message);
+        }
+      });
+      item.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+        if (!confirm(`Fall "${c.title}" wirklich löschen?`)) return;
+        try {
+          await sbDeleteCase(c.id);
+          await loadAndRender();
+        } catch (e) {
+          alert("Fehler beim Löschen: " + e.message);
+        }
+      });
+      list.appendChild(item);
+    });
+  }
+
+  async function loadAndRender() {
+    list.innerHTML = `<p style="opacity:.7">Lade …</p>`;
+    try {
+      const cases = await sbFetchMyCases();
+      state.myCases = cases;
+      renderList(cases);
+    } catch (e) {
+      list.innerHTML = `<p style="color:#f87171">Fehler beim Laden: ${escapeHtml(e.message)}</p>`;
+    }
+  }
+
+  addBtn.addEventListener("click", async () => {
+    const title = (titleInput.value || "").trim();
+    if (!title) {
+      formStatus.textContent = "❌ Titel ist erforderlich.";
+      return;
+    }
+    addBtn.disabled = true;
+    formStatus.textContent = "⏳ Wird angelegt …";
+    try {
+      await sbCreateCase({
+        title,
+        status: statusSelect.value,
+        description: (descInput.value || "").trim()
+      });
+      titleInput.value = "";
+      descInput.value = "";
+      statusSelect.value = "offen";
+      formStatus.textContent = "✅ Angelegt";
+      await loadAndRender();
+    } catch (e) {
+      formStatus.textContent = "❌ " + e.message;
+    } finally {
+      addBtn.disabled = false;
+    }
+  });
+
+  await loadAndRender();
+}
+
 function renderSettings() {
   const view = $("#view");
   view.innerHTML = "";
@@ -2084,6 +2324,13 @@ function renderSettings() {
 
   const h2 = document.createElement("h2");
   h2.textContent = "⚙️ Einstellungen";
+
+  const accountInfo = document.createElement("p");
+  accountInfo.style.fontSize = ".85rem";
+  accountInfo.style.opacity = ".8";
+  accountInfo.textContent = state.session
+    ? `Angemeldet als ${state.session.agent}`
+    : "";
 
   const themeBtn = document.createElement("button");
   themeBtn.className = "db-btn-ghost";
@@ -2198,6 +2445,7 @@ function renderSettings() {
 
   card.append(
     h2,
+    accountInfo,
     themeBtn,
     clearBtn,
     logoutBtn,
@@ -3532,8 +3780,33 @@ function initGlobalUi() {
   }
 
   window.addEventListener("hashchange", syncRoute);
-  syncRoute();
-  updateAgentBadge();
+
+  // Supabase-Session validieren (z.B. falls Token abgelaufen ist), dann erst rendern
+  sbCurrentUser().then(user => {
+    if (!user && state.session) {
+      // Lokale Session sagt "eingeloggt", Supabase widerspricht → ausloggen
+      state.session = null;
+      localStorage.removeItem(KEYS.session);
+    } else if (user && !state.session) {
+      // Supabase-Session noch gültig (z.B. nach Reload), lokalen State nachziehen
+      state.session = { agent: user.email, userId: user.id, org: ISM.org, loginAt: now() };
+      save(KEYS.session, state.session);
+    }
+    syncRoute();
+    updateAgentBadge();
+  }).catch(() => {
+    syncRoute();
+    updateAgentBadge();
+  });
+
+  // Auf Supabase Auth-Events reagieren (z.B. Logout in anderem Tab)
+  sb.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT" && state.session) {
+      state.session = null;
+      localStorage.removeItem(KEYS.session);
+      renderLogin();
+    }
+  });
 })();
 
 /* ---------- Extra CSS (police-like) ---------- */
