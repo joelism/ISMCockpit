@@ -147,6 +147,9 @@ const ICONS = {
   clock: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
   phone: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3h3l1.5 4.5-2 1.5a13 13 0 0 0 6 6l1.5-2L21 14.5v3a1.5 1.5 0 0 1-1.6 1.5A16 16 0 0 1 5 6.6 1.5 1.5 0 0 1 6.5 3Z"/></svg>`,
   at: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 12v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-4 7.5"/></svg>`,
+  interview: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9h8M8 13h5"/><path d="M21 12a8 8 0 0 1-11.2 7.3L4 21l1.4-4.2A8 8 0 1 1 21 12Z"/></svg>`,
+  shield: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6l-7-3Z"/></svg>`,
+  watch: `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M3 12s3.6-6.5 9-6.5S21 12 21 12s-3.6 6.5-9 6.5S3 12 3 12Z"/></svg>`,
 };
 function icon(name) { return ICONS[name] || ""; }
 
@@ -174,7 +177,12 @@ const REPORT_TYPES = [
   { id: "kurzbericht",   label: "Kurzbericht",       icon: "docShort" },
   { id: "antragsbericht",label: "Antragsbericht",    icon: "docRequest" },
   { id: "personenbericht",label: "Personenbericht",  icon: "docPerson" },
-  { id: "abschlussbericht",label: "Abschlussbericht",icon: "docClose" }
+  { id: "abschlussbericht",label: "Abschlussbericht",icon: "docClose" },
+  { id: "auskunftsersuchen", label: "Auskunftsersuchen", icon: "inbox", autofill: true },
+  { id: "observationsauftrag", label: "Observationsauftrag", icon: "watch", autofill: true },
+  { id: "schlussrapport", label: "Schlussbericht / Rapport", icon: "shield", autofill: true },
+  { id: "polizeimitteilung", label: "Mitteilung an Polizei", icon: "building", autofill: true },
+  { id: "einvernahme", label: "Einvernahme / Befragungsbogen", icon: "interview", qa: true }
 ];
 
 function caseTypeDef(code) { return CASE_TYPES.find(t => t.code === code) || CASE_TYPES[0]; }
@@ -800,6 +808,127 @@ function renderCaseOverviewTab(panel, c) {
    ═══════════════════════════════════════════════════════════════ */
 
 /** Feld-Definitionen je Berichtstyp. Jedes Feld: {key,label,type,rows?,placeholder?} */
+/** Liefert den Autofill-Wert für ein Feld anhand des Falls (c) und optional einer Kontaktperson. */
+function autofillValueFor(autofillKey, c) {
+  if (!c) return "";
+  if (autofillKey === "ref") return c.ref || "";
+  if (autofillKey === "title") return c.title || "";
+  if (autofillKey === "officer") return c.officer || agentCode();
+  if (autofillKey === "description") return c.description || "";
+  return "";
+}
+
+/**
+ * Baut die Eingabefelder eines Berichtsformulars in `host` auf.
+ * `getValue(key)` liefert einen bestehenden Wert (Bearbeiten) oder undefined (Neuanlage, dann greift autofill).
+ * `caseObj` wird für die Datenübernahme (autofill) gebraucht.
+ */
+function mountReportFields(host, fields, caseObj, getValue) {
+  host.innerHTML = "";
+  fields.forEach(f => {
+    const wrap = document.createElement("div");
+    wrap.className = "field" + (f.type === "textarea" || f.type === "qa" ? " span-2" : "");
+    const label = document.createElement("label");
+    label.textContent = f.label + (f.autofill ? " (automatisch übernommen)" : "");
+    wrap.appendChild(label);
+
+    const existing = getValue ? getValue(f.key) : undefined;
+
+    if (f.type === "qa") {
+      const qaWrap = document.createElement("div");
+      qaWrap.className = "qa-block";
+      qaWrap.dataset.fieldKey = f.key;
+      const initialPairs = Array.isArray(existing) ? existing : (existing ? JSON.parse(existing) : [{ q: "", a: "" }]);
+      function addPair(pair) {
+        const row = document.createElement("div");
+        row.className = "qa-row";
+        row.innerHTML = `
+          <div class="qa-row-num">${qaWrap.children.length + 1}.</div>
+          <div class="qa-row-fields">
+            <input class="input qa-q" placeholder="Frage" value="${escapeHtml((pair && pair.q) || "")}">
+            <textarea class="input qa-a" rows="2" placeholder="Antwort">${escapeHtml((pair && pair.a) || "")}</textarea>
+          </div>
+          <button type="button" class="btn btn-sm qa-remove" title="Frage entfernen">${icon("trash")}</button>
+        `;
+        row.querySelector(".qa-remove").addEventListener("click", () => {
+          row.remove();
+          renumberQa(qaWrap);
+        });
+        qaWrap.appendChild(row);
+      }
+      initialPairs.forEach(addPair);
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "btn btn-sm";
+      addBtn.innerHTML = `${icon("plus")} Frage hinzufügen`;
+      addBtn.addEventListener("click", () => addPair({ q: "", a: "" }));
+      wrap.appendChild(qaWrap);
+      wrap.appendChild(addBtn);
+      host.appendChild(wrap);
+      return;
+    }
+
+    let input;
+    if (f.type === "textarea") {
+      input = document.createElement("textarea");
+      input.rows = f.rows || 4;
+    } else {
+      input = document.createElement("input");
+      input.type = f.type;
+    }
+    input.className = "input";
+    input.dataset.fieldKey = f.key;
+    if (f.placeholder) input.placeholder = f.placeholder;
+    if (existing !== undefined) {
+      input.value = existing || "";
+    } else if (f.autofill) {
+      input.value = autofillValueFor(f.autofill, caseObj);
+    }
+    wrap.appendChild(input);
+    host.appendChild(wrap);
+  });
+}
+/** Formatiert den Wert eines Berichtsfelds für die Anzeige (HTML), inkl. Frage/Antwort-Listen. */
+function formatReportFieldValueHtml(f, v) {
+  if (f.type === "qa") {
+    const pairs = Array.isArray(v) ? v : [];
+    if (!pairs.length) return "";
+    return `<ol class="qa-display">${pairs.map(p => `<li><div class="qa-display-q">${escapeHtml(p.q || "")}</div><div class="qa-display-a">${escapeHtml(p.a || "(keine Antwort erfasst)")}</div></li>`).join("")}</ol>`;
+  }
+  return escapeHtml(v);
+}
+function hasReportFieldValue(f, v) {
+  if (f.type === "qa") return Array.isArray(v) && v.length > 0;
+  return !!v;
+}
+
+function renumberQa(qaWrap) {
+  $$(".qa-row-num", qaWrap).forEach((el, i) => { el.textContent = (i + 1) + "."; });
+}
+
+/** Liest die Werte aus den von mountReportFields erzeugten Feldern aus. */
+function readReportFields(host, fields) {
+  const data = {};
+  let hasContent = false;
+  fields.forEach(f => {
+    if (f.type === "qa") {
+      const qaWrap = host.querySelector(`.qa-block[data-field-key="${f.key}"]`);
+      const pairs = $$(".qa-row", qaWrap).map(row => ({
+        q: (row.querySelector(".qa-q").value || "").trim(),
+        a: (row.querySelector(".qa-a").value || "").trim()
+      })).filter(p => p.q || p.a);
+      data[f.key] = pairs;
+      if (pairs.length) hasContent = true;
+    } else {
+      const input = host.querySelector(`[data-field-key="${f.key}"]`);
+      const val = (input && input.value || "").trim();
+      data[f.key] = val;
+      if (val) hasContent = true;
+    }
+  });
+  return { data, hasContent };
+}
+
 function reportFieldsFor(type) {
   const common = [];
   if (type === "kurzbericht") {
@@ -832,6 +961,60 @@ function reportFieldsFor(type) {
       { key: "massnahmen", label: "Getroffene Massnahmen", type: "textarea", rows: 4 },
       { key: "empfehlung", label: "Empfehlung / weiteres Vorgehen", type: "textarea", rows: 4 },
       { key: "abschlussdatum", label: "Abschlussdatum", type: "date" },
+    ];
+  }
+  if (type === "auskunftsersuchen") {
+    return [
+      { key: "aktenzeichen", label: "Aktenzeichen", type: "text", autofill: "ref" },
+      { key: "ersuchtAn", label: "Ersuchen an (Stelle/Amt/Firma)", type: "text" },
+      { key: "betreff", label: "Betreff", type: "text", autofill: "title" },
+      { key: "rechtsgrundlage", label: "Rechtsgrundlage / Auftrag", type: "text" },
+      { key: "ersuchenText", label: "Ersuchen (Text)", type: "textarea", rows: 6, placeholder: "Wir ersuchen höflich um Auskunft über …" },
+      { key: "frist", label: "Antwortfrist", type: "date" },
+      { key: "sachbearbeiter", label: "Sachbearbeiter ISM", type: "text", autofill: "officer" },
+    ];
+  }
+  if (type === "observationsauftrag") {
+    return [
+      { key: "aktenzeichen", label: "Aktenzeichen", type: "text", autofill: "ref" },
+      { key: "auftragAn", label: "Auftrag an (Agent:in)", type: "text", autofill: "officer" },
+      { key: "zielperson", label: "Zielperson(en)", type: "text" },
+      { key: "zeitraum", label: "Beobachtungszeitraum", type: "text", placeholder: "z.B. 24.06.–28.06.2026" },
+      { key: "ort", label: "Beobachtungsort(e)", type: "text" },
+      { key: "auftrag", label: "Auftragsinhalt / Beobachtungsziel", type: "textarea", rows: 5 },
+      { key: "weisung", label: "Besondere Weisungen", type: "textarea", rows: 3 },
+    ];
+  }
+  if (type === "schlussrapport") {
+    return [
+      { key: "aktenzeichen", label: "Aktenzeichen", type: "text", autofill: "ref" },
+      { key: "auftraggeber", label: "Auftraggeber", type: "text" },
+      { key: "zusammenfassung", label: "Zusammenfassung des Falls", type: "textarea", rows: 5, autofill: "description" },
+      { key: "feststellungen", label: "Feststellungen / Ergebnisse", type: "textarea", rows: 6 },
+      { key: "empfehlung", label: "Empfehlung an Auftraggeber", type: "textarea", rows: 4 },
+      { key: "rapportDatum", label: "Rapport-Datum", type: "date" },
+      { key: "sachbearbeiter", label: "Sachbearbeiter ISM", type: "text", autofill: "officer" },
+    ];
+  }
+  if (type === "polizeimitteilung") {
+    return [
+      { key: "aktenzeichen", label: "ISM-Aktenzeichen", type: "text", autofill: "ref" },
+      { key: "polizeistelle", label: "Zuständige Polizeistelle", type: "text", placeholder: "z.B. Kantonspolizei Aargau" },
+      { key: "sachverhalt", label: "Sachverhalt / Verdacht", type: "textarea", rows: 5, autofill: "description" },
+      { key: "betroffenePersonen", label: "Betroffene Person(en)", type: "textarea", rows: 3 },
+      { key: "begruendung", label: "Begründung der Übergabe", type: "textarea", rows: 4, placeholder: "Hinweis: Hausdurchsuchungen und vergleichbare Zwangsmassnahmen führt der ISM nicht selbst durch." },
+      { key: "kontaktSachbearbeiter", label: "Kontakt ISM-Sachbearbeiter", type: "text", autofill: "officer" },
+    ];
+  }
+  if (type === "einvernahme") {
+    return [
+      { key: "einvernommenePerson", label: "Einvernommene Person", type: "text" },
+      { key: "rolle", label: "Rolle (Zeuge/Beschuldigte:r/Auskunftsperson)", type: "text" },
+      { key: "datum", label: "Datum/Zeit", type: "datetime-local" },
+      { key: "ort", label: "Ort der Einvernahme", type: "text" },
+      { key: "anwesend", label: "Weitere Anwesende", type: "text" },
+      { key: "qa", label: "Fragen und Antworten", type: "qa", rows: 0 },
+      { key: "bemerkungen", label: "Schlussbemerkungen", type: "textarea", rows: 3 },
     ];
   }
   return common;
@@ -869,27 +1052,7 @@ function renderCaseReportsTab(panel, c) {
   const fieldsHost = $("#rtFieldsHost", panel);
 
   function buildFields(type) {
-    fieldsHost.innerHTML = "";
-    const fields = reportFieldsFor(type);
-    fields.forEach(f => {
-      const wrap = document.createElement("div");
-      wrap.className = "field" + (f.type === "textarea" ? " span-2" : "");
-      const label = document.createElement("label");
-      label.textContent = f.label;
-      let input;
-      if (f.type === "textarea") {
-        input = document.createElement("textarea");
-        input.rows = f.rows || 4;
-      } else {
-        input = document.createElement("input");
-        input.type = f.type;
-      }
-      input.className = "input";
-      input.dataset.fieldKey = f.key;
-      if (f.placeholder) input.placeholder = f.placeholder;
-      wrap.append(label, input);
-      fieldsHost.appendChild(wrap);
-    });
+    mountReportFields(fieldsHost, reportFieldsFor(type), c, undefined);
   }
   buildFields(rtSelect.value);
   rtSelect.addEventListener("change", () => buildFields(rtSelect.value));
@@ -897,14 +1060,7 @@ function renderCaseReportsTab(panel, c) {
   $("#rtCreateBtn", panel).addEventListener("click", () => {
     const type = rtSelect.value;
     const fields = reportFieldsFor(type);
-    const data = {};
-    let hasContent = false;
-    fields.forEach(f => {
-      const input = fieldsHost.querySelector(`[data-field-key="${f.key}"]`);
-      const val = (input && input.value || "").trim();
-      data[f.key] = val;
-      if (val) hasContent = true;
-    });
+    const { data, hasContent } = readReportFields(fieldsHost, fields);
     if (!hasContent) { toast("Bitte mindestens ein Feld ausfüllen.", "error"); return; }
     const report = {
       id: uid(),
@@ -937,8 +1093,8 @@ function renderCaseReportsTab(panel, c) {
       card.className = "doc-card";
       const bodyLines = fields.map(f => {
         const v = r.data && r.data[f.key];
-        if (!v) return "";
-        return `<div style="margin-bottom:8px;"><strong style="font-family:var(--font-ui);font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:var(--accent-ink);display:block;margin-bottom:2px;">${escapeHtml(f.label)}</strong>${escapeHtml(v)}</div>`;
+        if (!hasReportFieldValue(f, v)) return "";
+        return `<div style="margin-bottom:8px;"><strong style="font-family:var(--font-ui);font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:var(--accent-ink);display:block;margin-bottom:2px;">${escapeHtml(f.label)}</strong>${formatReportFieldValueHtml(f, v)}</div>`;
       }).join("");
       card.innerHTML = `
         <div class="doc-card-head">
@@ -947,9 +1103,11 @@ function renderCaseReportsTab(panel, c) {
         </div>
         <div class="doc-card-body">${bodyLines || "<em>Keine Angaben.</em>"}</div>
         <div class="doc-card-foot">
+          <button class="btn btn-sm" data-action="edit-report">${icon("edit")} Bearbeiten</button>
           <button class="btn btn-sm" data-action="delete-report">${icon("trash")} Löschen</button>
         </div>
       `;
+      card.querySelector('[data-action="edit-report"]').addEventListener("click", () => openReportEditDialog(c, r, renderReportsList));
       card.querySelector('[data-action="delete-report"]').addEventListener("click", () => {
         if (!confirm(`${def.label} vom ${fmtDate(r.createdAt)} wirklich löschen?`)) return;
         c.reports = (c.reports || []).filter(x => x.id !== r.id);
@@ -963,11 +1121,67 @@ function renderCaseReportsTab(panel, c) {
   renderReportsList();
 }
 
+/* ── Bericht bearbeiten (Modal, gleiche Felder wie Erstellung) ───── */
+function openReportEditDialog(c, r, onSaved) {
+  const def = reportTypeDef(r.type);
+  const fields = reportFieldsFor(r.type);
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>${icon(def.icon)} ${escapeHtml(def.label)} bearbeiten</h3>
+        <button class="icon-btn" id="closeEditReport">${icon("close")}</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid section-gap" id="erFieldsHost"></div>
+      </div>
+      <div class="modal-foot">
+        <div class="btn-row">
+          <button class="btn" id="erCancel">Abbrechen</button>
+          <button class="btn btn-primary" id="erSave">${icon("check")} Speichern</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const fieldsHost = $("#erFieldsHost", overlay);
+  mountReportFields(fieldsHost, fields, c, key => (r.data && r.data[key]));
+
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+  $("#closeEditReport", overlay).addEventListener("click", close);
+  $("#erCancel", overlay).addEventListener("click", close);
+  $("#erSave", overlay).addEventListener("click", () => {
+    const { data, hasContent } = readReportFields(fieldsHost, fields);
+    if (!hasContent) { toast("Bitte mindestens ein Feld ausfüllen.", "error"); return; }
+    r.data = data;
+    r.updatedAt = now();
+    c.updatedAt = now();
+    save(KEYS.cases, state.cases);
+    toast(def.label + " aktualisiert", "success");
+    close();
+    if (onSaved) onSaved();
+  });
+}
+
 /* ═══════════════════════════════════════════════════════════════
    KONTAKTPERSONEN-TAB
    ═══════════════════════════════════════════════════════════════ */
 function renderCaseContactsTab(panel, c) {
   panel.innerHTML = `
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-head"><h2>${icon("search")} Aus globaler Datenbank übernehmen</h2></div>
+      <div class="panel-pad">
+        <div class="search-box">
+          ${icon("search")}
+          <input id="gdbContactSearch" type="search" placeholder="Name, Aktenzeichen, Nationalität, Ausweisnummer …">
+        </div>
+        <div id="gdbContactResults" class="section-gap"></div>
+      </div>
+    </div>
+
     <div class="panel" style="margin-bottom:16px;">
       <div class="panel-head"><h2>${icon("plus")} Kontaktperson erfassen</h2></div>
       <div class="panel-pad">
@@ -1019,6 +1233,60 @@ function renderCaseContactsTab(panel, c) {
       <div class="panel-pad" id="contactsList" style="display:grid;gap:10px;"></div>
     </div>
   `;
+
+  /* ── Personensuche in globaler Datenbank ──────────────────────── */
+  const gdbSearch = $("#gdbContactSearch", panel);
+  const gdbResults = $("#gdbContactResults", panel);
+  function renderGdbResults() {
+    const q = (gdbSearch.value || "").trim().toLowerCase();
+    if (!q) { gdbResults.innerHTML = ""; return; }
+    const matches = (state.people || []).filter(p => {
+      const hay = [p.name, p.nationality, p.idDoc, p.address, p.elnr, p.email].filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q);
+    }).slice(0, 8);
+    if (!matches.length) {
+      gdbResults.innerHTML = `<div class="field-hint">Keine Treffer in der globalen Datenbank.</div>`;
+      return;
+    }
+    gdbResults.innerHTML = `<div class="gdb-pick-grid">${matches.map(p => `
+      <div class="gdb-pick-card" data-pick="${escapeHtml(p.id)}">
+        <div class="gdb-pick-photo">${p.photoUrl ? `<img src="${escapeHtml(p.photoUrl)}" alt="">` : icon("user")}</div>
+        <div class="gdb-pick-info">
+          <div class="gdb-pick-name">${escapeHtml(p.name)}</div>
+          <div class="gdb-pick-sub">${escapeHtml([p.dob, p.nationality].filter(Boolean).join(" · ") || "Keine weiteren Angaben")}</div>
+          <div class="gdb-pick-meta">${escapeHtml([p.address, p.elnr].filter(Boolean).join(" · ") || "—")}</div>
+        </div>
+      </div>
+    `).join("")}</div>`;
+    $$('[data-pick]', gdbResults).forEach(card => {
+      card.addEventListener("click", () => {
+        const p = state.people.find(x => x.id === card.dataset.pick);
+        if (!p) return;
+        $("#ctName", panel).value = p.name || "";
+        $("#ctDob", panel).value = p.dob || "";
+        $("#ctGender", panel).value = p.gender || "unbekannt";
+        $("#ctNationality", panel).value = p.nationality || "";
+        $("#ctHeight", panel).value = p.heightCm || "";
+        $("#ctPhone", panel).value = p.elnr || p.phone || "";
+        $("#ctEmail", panel).value = p.email || "";
+        $("#ctAddress", panel).value = p.address || "";
+        $("#ctInsta", panel).value = p.instagram || "";
+        $("#ctSnap", panel).value = p.snapchat || "";
+        $("#ctTiktok", panel).value = p.tiktok || "";
+        $("#ctHair", panel).value = p.hairColor || "";
+        $("#ctEye", panel).value = p.eyeColor || "";
+        $("#ctBuild", panel).value = p.build || "";
+        $("#ctIdDoc", panel).value = p.idDoc || "";
+        $("#ctPhoto", panel).value = p.photoUrl || "";
+        $("#ctNotes", panel).value = p.notes || "";
+        toast(`${p.name} übernommen — Rolle ergänzen und speichern`, "success");
+        gdbSearch.value = "";
+        gdbResults.innerHTML = "";
+        $("#ctRole", panel).focus();
+      });
+    });
+  }
+  gdbSearch.addEventListener("input", renderGdbResults);
 
   $("#ctCreateBtn", panel).addEventListener("click", () => {
     const name = ($("#ctName", panel).value || "").trim();
@@ -1077,10 +1345,12 @@ function renderCaseContactsTab(panel, c) {
         </div>
         <div class="person-actions">
           <button class="btn btn-sm" data-action="report">${icon("docPerson")} Bericht</button>
+          <button class="btn btn-sm" data-action="edit">${icon("edit")}</button>
           <button class="btn btn-sm" data-action="delete">${icon("trash")}</button>
         </div>
       `;
       card.querySelector('[data-action="report"]').addEventListener("click", () => exportPersonReport(p, c.ref));
+      card.querySelector('[data-action="edit"]').addEventListener("click", () => openContactEditDialog(c, p, renderContactsList));
       card.querySelector('[data-action="delete"]').addEventListener("click", () => {
         if (!confirm(`Kontaktperson "${p.name}" aus diesem Fall entfernen?`)) return;
         c.contacts = (c.contacts || []).filter(x => x.id !== p.id);
@@ -1092,6 +1362,102 @@ function renderCaseContactsTab(panel, c) {
     });
   }
   renderContactsList();
+}
+
+/* ── Kontaktperson bearbeiten (Modal) ───────────────────────────── */
+function openContactEditDialog(c, p, onSaved) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>${icon("edit")} Kontaktperson bearbeiten</h3>
+        <button class="icon-btn" id="closeEditContact">${icon("close")}</button>
+      </div>
+      <div class="modal-body">
+        <fieldset class="form-block">
+          <legend>Personalien</legend>
+          <div class="form-grid section-gap">
+            <div class="field"><label>Name</label><input class="input" id="ecName" value="${escapeHtml(p.name || "")}"></div>
+            <div class="field"><label>Rolle im Fall</label><input class="input" id="ecRole" value="${escapeHtml(p.role || "")}" placeholder="z.B. Beschuldigte:r, Zeuge"></div>
+            <div class="field"><label>Geburtsdatum</label><input class="input" id="ecDob" type="text" value="${escapeHtml(p.dob || "")}" placeholder="JJJJ-MM-TT oder Jahrgang"></div>
+            <div class="field"><label>Geschlecht</label>
+              <select class="input" id="ecGender">
+                <option value="unbekannt" ${p.gender === "unbekannt" ? "selected" : ""}>Unbekannt</option>
+                <option value="männlich" ${p.gender === "männlich" ? "selected" : ""}>Männlich</option>
+                <option value="weiblich" ${p.gender === "weiblich" ? "selected" : ""}>Weiblich</option>
+                <option value="divers" ${p.gender === "divers" ? "selected" : ""}>Divers</option>
+              </select>
+            </div>
+            <div class="field"><label>Nationalität</label><input class="input" id="ecNationality" value="${escapeHtml(p.nationality || "")}"></div>
+            <div class="field"><label>Körpergrösse (cm)</label><input class="input" id="ecHeight" type="number" value="${escapeHtml(p.heightCm || "")}"></div>
+          </div>
+        </fieldset>
+        <fieldset class="form-block section-gap">
+          <legend>Kontaktangaben</legend>
+          <div class="form-grid section-gap">
+            <div class="field"><label>Telefon</label><input class="input" id="ecPhone" value="${escapeHtml(p.elnr || p.phone || "")}"></div>
+            <div class="field"><label>E-Mail</label><input class="input" id="ecEmail" type="email" value="${escapeHtml(p.email || "")}"></div>
+            <div class="field span-2"><label>Adresse / Wohnort</label><input class="input" id="ecAddress" value="${escapeHtml(p.address || "")}"></div>
+            <div class="field"><label>Instagram</label><input class="input" id="ecInsta" value="${escapeHtml(p.instagram || "")}"></div>
+            <div class="field"><label>Snapchat</label><input class="input" id="ecSnap" value="${escapeHtml(p.snapchat || "")}"></div>
+            <div class="field"><label>TikTok</label><input class="input" id="ecTiktok" value="${escapeHtml(p.tiktok || "")}"></div>
+          </div>
+        </fieldset>
+        <fieldset class="form-block section-gap">
+          <legend>Äusseres Erscheinungsbild</legend>
+          <div class="form-grid section-gap">
+            <div class="field"><label>Haarfarbe</label><input class="input" id="ecHair" value="${escapeHtml(p.hairColor || "")}"></div>
+            <div class="field"><label>Augenfarbe</label><input class="input" id="ecEye" value="${escapeHtml(p.eyeColor || "")}"></div>
+            <div class="field span-2"><label>Statur / besondere Merkmale</label><input class="input" id="ecBuild" value="${escapeHtml(p.build || "")}"></div>
+            <div class="field span-2"><label>Ausweisdaten</label><input class="input" id="ecIdDoc" value="${escapeHtml(p.idDoc || "")}"></div>
+            <div class="field span-2"><label>Foto-URL</label><input class="input" id="ecPhoto" value="${escapeHtml(p.photoUrl || "")}"></div>
+          </div>
+        </fieldset>
+        <div class="field section-gap"><label>Ermittlungsgrund / Bemerkungen</label><textarea class="input" id="ecNotes" rows="3">${escapeHtml(p.notes || "")}</textarea></div>
+      </div>
+      <div class="modal-foot">
+        <div class="btn-row">
+          <button class="btn" id="ecCancel">Abbrechen</button>
+          <button class="btn btn-primary" id="ecSave">${icon("check")} Speichern</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+  $("#closeEditContact", overlay).addEventListener("click", close);
+  $("#ecCancel", overlay).addEventListener("click", close);
+  $("#ecSave", overlay).addEventListener("click", () => {
+    const name = ($("#ecName", overlay).value || "").trim();
+    if (!name) { toast("Name ist erforderlich.", "error"); return; }
+    p.name = name;
+    p.role = ($("#ecRole", overlay).value || "").trim();
+    p.dob = ($("#ecDob", overlay).value || "").trim();
+    p.gender = $("#ecGender", overlay).value;
+    p.heightCm = ($("#ecHeight", overlay).value || "").trim();
+    p.nationality = ($("#ecNationality", overlay).value || "").trim();
+    p.elnr = ($("#ecPhone", overlay).value || "").trim();
+    p.phone = p.elnr;
+    p.email = ($("#ecEmail", overlay).value || "").trim();
+    p.address = ($("#ecAddress", overlay).value || "").trim();
+    p.instagram = ($("#ecInsta", overlay).value || "").trim();
+    p.snapchat = ($("#ecSnap", overlay).value || "").trim();
+    p.tiktok = ($("#ecTiktok", overlay).value || "").trim();
+    p.hairColor = ($("#ecHair", overlay).value || "").trim();
+    p.eyeColor = ($("#ecEye", overlay).value || "").trim();
+    p.build = ($("#ecBuild", overlay).value || "").trim();
+    p.idDoc = ($("#ecIdDoc", overlay).value || "").trim();
+    p.photoUrl = ($("#ecPhoto", overlay).value || "").trim();
+    p.notes = ($("#ecNotes", overlay).value || "").trim();
+    c.updatedAt = now();
+    save(KEYS.cases, state.cases);
+    upsertGlobalPersonFromContact(c, p); // Änderungen auch in globale Datenbank übernehmen
+    toast("Kontaktperson aktualisiert", "success");
+    close();
+    if (onSaved) onSaved();
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1209,8 +1575,8 @@ function exportCaseDossier(c) {
     const fields = reportFieldsFor(r.type);
     const rows = fields.map(f => {
       const v = r.data && r.data[f.key];
-      if (!v) return "";
-      return `<div class="field-row"><span class="flabel">${escapeHtml(f.label)}</span>${escapeHtml(v)}</div>`;
+      if (!hasReportFieldValue(f, v)) return "";
+      return `<div class="field-row"><span class="flabel">${escapeHtml(f.label)}</span>${formatReportFieldValueHtml(f, v)}</div>`;
     }).join("");
     return `
       <div class="report-block">
@@ -1712,6 +2078,22 @@ function renderHelp() {
         <p>${REPORT_TYPES.map(r => `<strong>${escapeHtml(r.label)}</strong>`).join(" · ")} — jeder Typ hat eigene, vorstrukturierte Formularfelder. Alle Berichte eines Falls können über "Dossier drucken" gesammelt als PDF ausgegeben werden.</p>
       </div>
       <div class="help-block">
+        <h3>Vorlagen mit Datenübernahme</h3>
+        <p>Auskunftsersuchen, Observationsauftrag, Schlussbericht und Mitteilung an Polizei übernehmen Aktenzeichen, Falltitel und Sachbearbeiter automatisch aus dem Fall. Übernommene Felder bleiben editierbar, bevor der Bericht gespeichert wird.</p>
+      </div>
+      <div class="help-block">
+        <h3>Einvernahme / Befragungsbogen</h3>
+        <p>Frage/Antwort-Paare lassen sich beliebig hinzufügen und werden im Dossier-Druck als nummeriertes Einvernahmeprotokoll ausgegeben.</p>
+      </div>
+      <div class="help-block">
+        <h3>Befugnisse des ISM</h3>
+        <p>Der ISM führt keine Zwangsmassnahmen wie Hausdurchsuchungen durch. Besteht ein entsprechender Verdacht, wird der Fall über die Vorlage "Mitteilung an Polizei" an die zuständige Polizeistelle übergeben.</p>
+      </div>
+      <div class="help-block">
+        <h3>Kontaktpersonen aus globaler Datenbank</h3>
+        <p>Im Kontaktpersonen-Tab eines Falls kann nach bereits erfassten Personen gesucht werden. Ein Klick auf einen Treffer übernimmt die Personalien ins Erfassungsformular, das vor dem Speichern noch angepasst werden kann.</p>
+      </div>
+      <div class="help-block">
         <h3>Fälle vs. Meine Fälle</h3>
         <p>Die <strong>Fall-Datenbank</strong> ist die globale, über Cloudflare synchronisierte Ablage. <strong>Meine Fälle</strong> sind persönlich, pro Agent getrennt gespeichert und nur für dich sichtbar.</p>
       </div>
@@ -1836,20 +2218,30 @@ function renderSettings() {
 
   window.addEventListener("hashchange", syncRoute);
 
+  // Lokale Session sofort anzeigen — nicht auf Supabase-Antwort warten.
+  // Verhindert, dass kurzzeitige Netzwerk-/Token-Verzögerungen den Nutzer
+  // fälschlich auf den Login-Screen zurückwerfen.
+  syncRoute();
+  if (cfConfig()) {
+    cfPull().then(r => console.log(`[CF] Auto-Sync: ${r.people} Personen, ${r.cases} Fälle`))
+            .catch(e => console.warn("[CF] Auto-Sync fehlgeschlagen:", e.message));
+  }
+
+  // Supabase-Session im Hintergrund verifizieren. Nur eingreifen, wenn klar
+  // ist, dass keine gültige Session (mehr) besteht — niemals bei Netzwerkfehlern
+  // ungefragt ausloggen.
   sbCurrentUser().then(user => {
-    if (!user && state.session) {
-      state.session = null;
-      localStorage.removeItem(KEYS.session);
-    } else if (user && !state.session) {
+    if (user && !state.session) {
       state.session = { agent: user.email, userId: user.id, org: ISM.org, loginAt: now() };
       save(KEYS.session, state.session);
+      syncRoute();
     }
-    syncRoute();
-    if (cfConfig()) {
-      cfPull().then(r => console.log(`[CF] Auto-Sync: ${r.people} Personen, ${r.cases} Fälle`))
-              .catch(e => console.warn("[CF] Auto-Sync fehlgeschlagen:", e.message));
-    }
-  }).catch(() => { syncRoute(); });
+    // Hinweis: KEIN automatisches Ausloggen hier, falls user===null —
+    // das übernimmt ausschliesslich der explizite SIGNED_OUT-Event unten,
+    // damit ein vorübergehend leeres getUser()-Resultat (z.B. beim ersten
+    // Laden, bevor Supabase das Token aus dem Storage gelesen hat) nicht
+    // versehentlich eine gültige lokale Session zerstört.
+  }).catch(e => { console.warn("[Auth] Session-Prüfung fehlgeschlagen:", e.message); });
 
   sb.auth.onAuthStateChange((event) => {
     if (event === "SIGNED_OUT" && state.session) {
