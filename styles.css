@@ -847,6 +847,17 @@ fieldset.form-block legend{
 .person-pick-row{ display: flex; align-items: center; gap: 8px; font-size: .85rem; cursor: pointer; }
 .person-pick-row input[type="checkbox"]{ width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
 
+/* ── Behördenwahl (Polizei vs. Staatsanwaltschaft) ─────────────── */
+.authority-tiles{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.authority-tile{ display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; font-family: var(--font-ui); }
+.authority-tile strong{ font-size: .88rem; }
+.authority-tile span{ font-size: .74rem; color: var(--muted); }
+.authority-tile:hover{ border-color: var(--accent); }
+.authority-tile.active{ border-color: var(--accent); background: var(--accent-soft); }
+.authority-tile.active strong{ color: var(--accent-ink); }
+.authority-reco{ margin-top: 10px; font-size: .78rem; color: var(--ink-soft); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; line-height: 1.5; }
+@media (max-width: 880px){ .authority-tiles{ grid-template-columns: 1fr; } }
+
 @media (max-width: 880px){
   .app-shell{ flex-direction: column; }
   .sidebar{ position: static; height: auto; width: auto; flex-direction: row; align-items: center; padding: 0; }
